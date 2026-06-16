@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# sweep.sh — move staged sources from inbox/ into raw/.
+# sweep — move staged sources from inbox/ into raw/.
 #
 # inbox/ is a SHAREABLE staging area: unprivileged contributors can drop files there.
 # This sweep MOVES each dropped item into raw/ (the protected store), so once curated a
 # source leaves the shared area entirely — contributors can't read, alter, or delete it.
 # Share only inbox/; never share raw/ or the KB root.
 #
-#   ./scripts/sweep.sh            move inbox/* into raw/ and commit (skips README.md)
-#   ./scripts/sweep.sh --dry-run  show what would move; move nothing
+#   ./scripts/sweep            move inbox/* into raw/ and commit (skips README.md)
+#   ./scripts/sweep --dry-run  show what would move; move nothing
 #
 # On a name collision with an existing raw/ entry, the incoming item is renamed with a
 # timestamp suffix rather than overwriting — nothing in raw/ is ever clobbered.

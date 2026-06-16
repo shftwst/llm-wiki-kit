@@ -11,7 +11,7 @@ is its own git repo.
 ## Quickstart
 
 ```sh
-./scripts/new-kb.sh my-kb "My KB Title"
+./scripts/new-kb my-kb "My KB Title"
 ```
 
 This creates `../my-kb/` (a sibling of the kit by default), substitutes the
@@ -26,7 +26,7 @@ cd ../my-kb
 Pick a different location with a third argument:
 
 ```sh
-./scripts/new-kb.sh my-kb "My KB Title" /path/to/parent-dir
+./scripts/new-kb my-kb "My KB Title" /path/to/parent-dir
 ```
 
 ## What's in a generated KB
@@ -35,12 +35,12 @@ Pick a different location with a third argument:
 my-kb/
 ├── CLAUDE.md   # the schema the LLM follows (page conventions + workflows)
 ├── README.md   # human intro + Obsidian setup
-├── inbox/      # shareable intake; sweep.sh moves drops into raw/ (raw/ stays private)
+├── inbox/      # shareable intake; sweep moves drops into raw/ (raw/ stays private)
 ├── raw/        # sources: files, directories, or symlinks to living docs
 ├── wiki/       # the LLM-owned wiki (Obsidian vault root)
 │   ├── index.md
 │   └── overview.md
-├── scripts/    # sweep.sh (intake) + scan.sh (detect) + ingest (sweep→detect→ingest)
+├── scripts/    # sweep (intake) + scan (detect) + ingest (sweep→detect→ingest)
 ├── .ingest/    # detection state: manifest.tsv (baseline) + pending.md (queue) + cost.tsv
 └── log.md      # append-only ingest / re-ingest / query / lint record
 ```
@@ -48,14 +48,14 @@ my-kb/
 ## Protected store + shared intake
 
 `raw/` is the protected source of truth — you never share it. `inbox/` is a shareable
-staging directory: contributors drop files there, and `scripts/sweep.sh` **moves** each
+staging directory: contributors drop files there, and `scripts/sweep` **moves** each
 into `raw/`. Because the sweep *moves* (not copies), a curated source leaves the shared
 area entirely — contributors can't reach, alter, or delete the real `raw/` files. Share
 only `inbox/` (e.g. a shared cloud folder); keep `raw/` and the KB root private.
 
 ## Mechanical ingest
 
-Ingest never has to wait for you to remember it. `scripts/scan.sh` fingerprints every
+Ingest never has to wait for you to remember it. `scripts/scan` fingerprints every
 source — including the contents behind a living symlink — and diffs against a committed
 baseline (`.ingest/manifest.tsv`) to find what's new, changed, or removed. It's a pure
 script: no LLM, no cost. `scripts/ingest` runs the scan and, if anything changed,

@@ -13,10 +13,10 @@ different questions and have different owners.
 ### `manifest.tsv` — *has the source changed?* (script-owned)
 
 - Columns: `source_path · kind · fingerprint · last_ingested`.
-- Owned by **`scripts/scan.sh`**. The agent never touches it.
-- `scan.sh` fingerprints each source (following living symlinks) and diffs against this
+- Owned by **`scripts/scan`**. The agent never touches it.
+- `scan` fingerprints each source (following living symlinks) and diffs against this
   baseline to classify **new / changed / removed**. `ingest` advances it
-  (`scan.sh --accept`) only after a successful pass.
+  (`scan --accept`) only after a successful pass.
 - It is about **change detection** — mechanical, content-hash based. A script can compute
   it; no judgment required.
 
@@ -44,7 +44,7 @@ source of truth.
 | | `manifest.tsv` | `coverage.tsv` |
 |---|---|---|
 | Question | has the source changed? | how deeply have we read it? |
-| Owner | `scan.sh` (script) | the agent |
+| Owner | `scan` (script) | the agent |
 | Basis | content fingerprint | semantic judgment |
 | Drives | re-ingest detection | progressive deepening |
 

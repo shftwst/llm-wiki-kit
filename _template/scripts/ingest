@@ -22,8 +22,8 @@
 set -euo pipefail
 
 KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCAN="$KB_DIR/scripts/scan.sh"
-SWEEP="$KB_DIR/scripts/sweep.sh"
+SCAN="$KB_DIR/scripts/scan"
+SWEEP="$KB_DIR/scripts/sweep"
 PENDING="$KB_DIR/.ingest/pending.md"
 COVERAGE="$KB_DIR/.ingest/coverage.tsv"
 COST_TSV="$KB_DIR/.ingest/cost.tsv"
@@ -113,7 +113,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   else
     echo "  $CLAUDE_BIN -p ${PERM[*]} --model $MODEL \"<$MODE prompt>\"   (jq absent: plain text, no cost ledger)"
   fi
-  echo "  then: scripts/scan.sh --accept && git add -A && git commit"
+  echo "  then: scripts/scan --accept && git add -A && git commit"
   echo "ingest: [dry-run] no changes made."
   exit 0
 fi

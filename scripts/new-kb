@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# new-kb.sh — scaffold a new LLM-maintained knowledge base from the template.
+# new-kb — scaffold a new LLM-maintained knowledge base from the template.
 #
 # Usage:
-#   ./scripts/new-kb.sh <kb-name> [<KB Title>] [<target-parent-dir>]
+#   ./scripts/new-kb <kb-name> [<KB Title>] [<target-parent-dir>]
 #
 #   <kb-name>            kebab-case directory name for the KB (required)
 #   <KB Title>          human-readable title (default: derived from kb-name)
@@ -24,7 +24,7 @@ TEMPLATE_DIR="$KIT_DIR/_template"
 
 # --- args --------------------------------------------------------------------
 KB_NAME="${1:-}"
-[ -n "$KB_NAME" ] || die "usage: new-kb.sh <kb-name> [<KB Title>] [<target-parent-dir>]"
+[ -n "$KB_NAME" ] || die "usage: new-kb <kb-name> [<KB Title>] [<target-parent-dir>]"
 
 printf '%s' "$KB_NAME" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
   || die "kb-name must be kebab-case (lowercase letters, digits, hyphens): got '$KB_NAME'"

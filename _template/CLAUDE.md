@@ -26,7 +26,7 @@ the `llm-wiki-kit` repo at `docs/llm-wiki-pattern.md`.
 ├── CLAUDE.md          # this schema
 ├── README.md          # human-facing intro + Obsidian setup
 ├── notes.md           # owner-authored facts & corrections (authoritative; cite as "per owner")
-├── inbox/             # shareable staging; scripts/sweep.sh MOVES drops into raw/
+├── inbox/             # shareable staging; scripts/sweep MOVES drops into raw/
 ├── raw/               # sources (files, directories, symlinks) — protected, never shared
 ├── wiki/              # the wiki (Obsidian vault root) — you own everything here
 │   ├── index.md       # content catalog of every wiki page
@@ -63,7 +63,7 @@ Support re-ingesting updates — see the **Re-ingest** workflow.
 ### Intake & sharing (`inbox/`)
 
 `inbox/` is a **shareable staging area** — the one directory exposed to contributors.
-People drop files or folders into it; `scripts/sweep.sh` then **moves** each item into
+People drop files or folders into it; `scripts/sweep` then **moves** each item into
 `raw/`. Because the sweep *moves* (not copies), a curated source leaves the shared area
 entirely, so contributors can never read, alter, or delete the real `raw/` source.
 
@@ -106,7 +106,7 @@ files.
   ---
   ```
 
-  Drift fingerprints live in `.ingest/manifest.tsv` (owned by `scripts/scan.sh`), not on
+  Drift fingerprints live in `.ingest/manifest.tsv` (owned by `scripts/scan`), not on
   the page — one fact, one owner.
 
 - **Derived pages** (comparisons, analyses — answers synthesized from *other* pages)
@@ -258,7 +258,7 @@ Scan for: contradictions between pages; stale claims newer sources superseded;
 **stale derived pages — for any page with `derived_from`, if any listed page's `updated`
 is later than this page's `as_of`, flag it stale (a pure date comparison, no re-reading
 needed)**; orphan pages (no inbound links); concepts mentioned but lacking a page; missing
-cross-references; **source drift — run `scripts/scan.sh`, which fingerprints every source
+cross-references; **source drift — run `scripts/scan`, which fingerprints every source
 (files, directories, and living symlink targets) and lists anything changed since it was
 last ingested; surface those as re-ingest candidates**; data gaps a web search could fill. Report findings and suggested next questions; fix with the human's
 go-ahead. Append a `lint` entry.
@@ -268,7 +268,7 @@ go-ahead. Append a `lint` entry.
 Detection of new/changed sources is automated so it never depends on someone remembering
 to ask. The machinery lives in `scripts/` and `.ingest/`:
 
-- **`scripts/scan.sh`** — walks `raw/`, fingerprints each source (following symlinks), and
+- **`scripts/scan`** — walks `raw/`, fingerprints each source (following symlinks), and
   diffs against `.ingest/manifest.tsv` to classify **new / changed / removed**. Writes the
   queue to `.ingest/pending.md`; exits `10` if anything is pending, `0` if clean. Pure
   script, no LLM, no cost. It is also the drift check the Lint workflow calls.
@@ -280,7 +280,7 @@ to ask. The machinery lives in `scripts/` and `.ingest/`:
 - **`.ingest/coverage.tsv`** — the read frontier for progressive deepening: each document
   with a value tier and read status. **You own this one** — update it as you read. See
   *Progressive deepening*.
-- **`scripts/ingest`** — runs `scan.sh`, and if anything is pending, ingests it,
+- **`scripts/ingest`** — runs `scan`, and if anything is pending, ingests it,
   then advances the manifest and commits. Run it yourself, or schedule it (see
   `scripts/README.md`).
 

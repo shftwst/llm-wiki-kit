@@ -1,2 +1,2 @@
 # manifest.tsv — ingest baseline. Columns: source_path	kind	fingerprint	last_ingested
-# Managed by scripts/scan.sh (--accept). Do not edit by hand.
+# Managed by scripts/scan (--accept). Do not edit by hand.

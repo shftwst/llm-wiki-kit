@@ -10,28 +10,28 @@ script (no LLM, no cost); the actual ingest invokes Claude Code headlessly.
 > `find -L raw/<source> -type f | wc -l` is `0` for a source you know has files, the mount
 > isn't present — you're in the wrong place.
 
-## `sweep.sh` — move shared intake into the protected store
+## `sweep` — move shared intake into the protected store
 
 `inbox/` is a shareable staging directory; `raw/` is the protected source store you never
-share. `sweep.sh` **moves** each item from `inbox/` into `raw/` and commits the move — so
+share. `sweep` **moves** each item from `inbox/` into `raw/` and commits the move — so
 once curated, a source leaves the shared area and contributors can't alter or delete it.
 
 ```sh
-./scripts/sweep.sh            # move inbox/* → raw/ and commit
-./scripts/sweep.sh --dry-run  # show what would move; move nothing
+./scripts/sweep            # move inbox/* → raw/ and commit
+./scripts/sweep --dry-run  # show what would move; move nothing
 ```
 
 It runs automatically as the first step of `ingest` (disable with `--no-sweep`).
 Name collisions never overwrite a `raw/` source — the incoming item is timestamp-suffixed.
 
-## `scan.sh` — detect changes
+## `scan` — detect changes
 
 Walks `raw/`, fingerprints each source (following symlinks into living drives), and diffs
 against `.ingest/manifest.tsv`. Writes the queue to `.ingest/pending.md`.
 
 ```sh
-./scripts/scan.sh          # detect; exit 0 = clean, 10 = changes pending
-./scripts/scan.sh --accept # advance the baseline to current state (used after ingest)
+./scripts/scan          # detect; exit 0 = clean, 10 = changes pending
+./scripts/scan --accept # advance the baseline to current state (used after ingest)
 ```
 
 This is also the drift check the Lint workflow calls — it covers files, directories, and
