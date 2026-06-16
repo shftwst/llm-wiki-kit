@@ -32,17 +32,19 @@ against `.ingest/manifest.tsv`. Writes the queue to `.ingest/pending.md`.
 ```sh
 ./scripts/scan          # detect; exit 0 = clean, 10 = changes pending
 ./scripts/scan --accept # advance the baseline to current state (used after ingest)
+./scripts/scan --refresh # freshness check: flag read coverage items whose doc changed = stale
 ```
 
-This is also the drift check the Lint workflow calls — it covers files, directories, and
-living symlink targets in one pass.
+`scan` (no flag) is also the drift check the Lint workflow calls; `--refresh` is the
+per-document freshness check that drives re-reading (see Progressive deepening).
 
 ## `ingest` — detect + ingest
 
 ```sh
 ./scripts/ingest            # Pass 1 "read": read HIGH-value docs in full
 ./scripts/ingest --map      # Pass 0 "map": cheap skeleton + build coverage frontier
-./scripts/ingest --deepen   # Pass 2+: read the next highest-value unread docs
+./scripts/ingest --deepen   # Pass 2+: read the next highest-value unread OR stale docs
+./scripts/ingest --fresh    # prioritise re-reading stale (changed) docs over new coverage
 ./scripts/ingest --budget 5 # soft per-pass spend target (USD)
 ./scripts/ingest --watch    # live play-by-play of each step
 ./scripts/ingest --dry-run  # show what would run; no LLM, no changes
@@ -57,6 +59,12 @@ by value: `notes.md` priorities, then a document-type heuristic). Then a default
 pass reads the high-value docs; repeat `--deepen` to read progressively more, value-first.
 Stop after any pass — the wiki is usable throughout and the next run resumes the frontier.
 `--budget $N` caps a pass; watch actual spend in `.ingest/cost.tsv`.
+
+**Freshness.** A deepen pass auto-detects documents that changed since they were read
+(`scan --refresh` flips them to `stale`) and re-reads them by value — the frontier is
+`unread ∪ stale`. Default order is value-first (stale beats unread *within* a tier);
+`--fresh` reconciles all stale before expanding. It's the web-crawler coverage-vs-freshness
+trade-off, weighted by importance.
 
 Full reference — the two ledgers, the algorithm, and a guardrailed operator playbook:
 [`../docs/deepening.md`](../docs/deepening.md).

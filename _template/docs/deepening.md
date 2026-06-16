@@ -20,14 +20,16 @@ different questions and have different owners.
 - It is about **change detection** — mechanical, content-hash based. A script can compute
   it; no judgment required.
 
-### `coverage.tsv` — *how deeply have we read it?* (agent-owned)
+### `coverage.tsv` — *how deeply have we read it, and is it still current?* (shared)
 
-- Columns: `item · value · status · pass · last_read`.
-- Owned by **the agent (LLM)**. The wrapper never edits it.
+- Columns: `path · value · status · pass · last_read · fingerprint · notes`.
+- **Shared ownership:** the **agent** owns the semantic columns (path, value, status, notes —
+  only it knows whether it read a document *in full*); **`scan --refresh`** owns the
+  `fingerprint` and flips `read → stale` when a document changes since it was read.
 - One row per document or tight group: a value tier (`high|med|low`) and a read status
-  (`unread|partial|read`). It is the **frontier** the deepening loop consumes.
-- It is about **read depth** — semantic. Only the agent that read a document knows whether
-  it read it *in full*, so only the agent can maintain it.
+  (`unread|partial|read|stale`). It is the **frontier** the deepening loop consumes.
+- It is about **read depth and freshness** — what's been understood, and what has since gone
+  out of date. See §2 *Freshness vs coverage*.
 
 ### Why they're split
 
@@ -43,10 +45,10 @@ source of truth.
 
 | | `manifest.tsv` | `coverage.tsv` |
 |---|---|---|
-| Question | has the source changed? | how deeply have we read it? |
-| Owner | `scan` (script) | the agent |
-| Basis | content fingerprint | semantic judgment |
-| Drives | re-ingest detection | progressive deepening |
+| Question | has the source changed? | how deeply read — and still current? |
+| Owner | `scan` (script) | agent (semantics) + `scan --refresh` (fingerprint) |
+| Basis | content fingerprint | semantic judgment + per-item fingerprint |
+| Drives | re-ingest detection | progressive deepening + freshness |
 
 ---
 
@@ -76,10 +78,44 @@ deeper, stopping whenever you like.** The named ideas it borrows:
   `unread`. This is the triage.
 - **Pass 1 — read** (default): read the **high-value** unread documents in full, extract
   facts, upgrade pages from inferred to cited, derive `analysis/` pages. Mark them `read`.
-- **Passes 2…n — `--deepen`** (repeatable): read the next highest-value `unread` items,
-  upgrade, mark `read`. Repeat until the frontier is empty or you stop.
+- **Passes 2…n — `--deepen`** (repeatable): read the next highest-value `unread` **or
+  `stale`** item, upgrade, mark `read`. Repeat until the frontier is empty or you stop.
 
 Each pass commits, records cost in `.ingest/cost.tsv`, and leaves the wiki consistent.
+
+### Freshness vs coverage (re-reading changed docs)
+
+A living source mutates, so a document you already read can be **superseded** — its page is
+now stale. The frontier therefore has two kinds of work: **unread** (coverage — expand into
+new docs) and **stale** (freshness — re-read changed docs). With a fixed per-pass budget,
+every pass chooses between them.
+
+**This is exactly the web-crawler refresh problem.** A crawler with limited bandwidth
+balances *discovering new pages* against *re-fetching changed ones*, and the known result
+(Cho & Garcia-Molina, *Effective Page Refresh Policies for Web Crawlers*) is to weight both
+by **page importance** and **change rate** — don't re-crawl an unimportant page just because
+it changed, and don't ignore an important stale page to discover trivia. Our `value` tier is
+importance; `stale` is the age signal.
+
+**How it's detected.** `scan --refresh` re-fingerprints each `read`/`partial` item
+(following the living symlink) and flips changed ones to `status=stale`. It runs
+automatically at the start of a deepen pass (to surface stale work) and at the end of every
+pass (to baseline what was just read). No LLM, no cost.
+
+**The default policy — value-first, freshness breaks ties:**
+
+```
+stale-high → unread-high → partial-high → stale-med → unread-med → …
+```
+
+- A **stale high-value** doc (a superseded financial statement) is top priority — it's
+  *actively wrong* on something important, the highest value-of-information.
+- But a **stale low-value** receipt never preempts an **unread high-value** contract —
+  importance dominates, so freshness-churn on trivia can't starve real coverage.
+
+**The override:** `--fresh` re-reads *all* stale (importance-ordered) before any new
+coverage — "make everything I've told you correct before learning more." Use it when the
+source has had a big update and you want the wiki reconciled before expanding.
 
 ---
 
@@ -107,8 +143,13 @@ cap *how much* you spend, and you *catch errors*.
    Wrong fact? Add a correction to `notes.md`. Spot-check a few *un-flagged* confident
    claims against the cited originals (each page's `## Sources` links them).
 4. **Deepen in bounded passes** — `./scripts/ingest --deepen --budget 5 --watch`.
-   Repeat. Each pass reads the next-most-valuable unread items. **Check `.ingest/cost.tsv`**
-   between passes; stop when the marginal pages aren't worth the marginal dollars.
+   Repeat. Each pass reads the next-most-valuable unread *or stale* items. **Check
+   `.ingest/cost.tsv`** between passes; stop when the marginal pages aren't worth the
+   marginal dollars.
+5. **Keep it fresh** — when the source has changed, a deepen pass auto-detects stale docs
+   (`scan --refresh`) and re-reads them by value. After a big source update, run
+   `./scripts/ingest --fresh --watch` to reconcile everything already read *before*
+   expanding coverage. `scan --refresh` on its own (no LLM) just reports the stale count.
 
 ### Guardrails (what protects you)
 

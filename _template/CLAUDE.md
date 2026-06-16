@@ -245,14 +245,26 @@ pass and resume later; the wiki is usable throughout. The frontier is `.ingest/c
 - **Pass 1 — read** (default): read the **high-value** unread documents in full, extract
   facts, upgrade pages from inferred to cited, derive `analysis/` pages. Mark them `read`.
 - **Passes 2…n — deepen** (`--deepen`, repeatable): read the next highest-value `unread`
-  items and upgrade. Optional `--budget $N` caps a pass; the next run resumes the frontier.
+  or `stale` item and upgrade. `--budget $N` caps a pass; `--fresh` re-reads stale before
+  new coverage; the next run resumes the frontier.
 
 Always pick the next work by value order, mark items `read` as you go, and converge toward
 fully-read. Read state is memoized in `coverage.tsv`, so no document is read twice.
 
+**Freshness.** A living source changes, so a document you already read can go **stale**.
+`scan --refresh` fingerprints each `read` item and flips changed ones to `stale` — so the
+frontier is `unread ∪ stale`. Default order is **value-first, stale-before-unread within a
+tier**: wrong data beats missing data, but importance dominates (a stale low-value receipt
+never preempts an unread high-value contract). `--fresh` flips to freshness-first. This is
+the web-crawler refresh trade-off — coverage vs freshness, weighted by importance.
+
 Full model, ledger ownership, and the human operator playbook: **`docs/deepening.md`**.
 
 ### Re-ingest (a source changed)
+
+Changed documents inside a living source are flagged `stale` in `coverage.tsv` by
+`scan --refresh` (see *Progressive deepening*); a deepen pass re-reads them in value order.
+For each stale document:
 
 1. Re-read the source. Compare against its existing source page.
 2. Update the affected entity/concept pages. Where new data contradicts old claims, flag
@@ -302,9 +314,10 @@ to ask. The machinery lives in `scripts/` and `.ingest/`:
   and neither do you** — `scripts/ingest` advances it after a successful ingest.
 - **`.ingest/pending.md`** — the regenerated queue of what scan found. Derived; safe to
   overwrite.
-- **`.ingest/coverage.tsv`** — the read frontier for progressive deepening: each document
-  with a value tier and read status. **You own this one** — update it as you read. See
-  *Progressive deepening*.
+- **`.ingest/coverage.tsv`** — the read frontier: each document row has a `path`, value
+  tier, read status (`unread|partial|read|stale`), and a fingerprint. You own the semantic
+  columns; `scan --refresh` owns the fingerprint and flips `read→stale` when a doc changes.
+  See *Progressive deepening*.
 - **`scripts/ingest`** — runs `scan`, and if anything is pending, ingests it,
   then advances the manifest and commits. Run it yourself, or schedule it (see
   `scripts/README.md`).

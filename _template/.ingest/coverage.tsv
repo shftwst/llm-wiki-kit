@@ -1,7 +1,12 @@
-# coverage.tsv — read-coverage frontier for progressive deepening (AGENT-owned).
-# The agent enumerates the corpus here (--map pass) and marks items read as it deepens.
-# One row per document or tight group. Columns: item	value	status	pass	last_read
-#   value:  high | med | low      (owner priorities in notes.md first, then type heuristic)
-#   status: unread | partial | read
-# The deepen pass reads this to pick the next highest-value unread items. Unlike
-# manifest.tsv (script-owned), coverage.tsv is the agent's — the wrapper never edits it.
+# coverage.tsv — read frontier for progressive deepening (AGENT + scan share it). TAB-separated.
+# One row per document or tight group. Columns:
+#   path        raw/-relative path the row covers (e.g. shared-drive/Finance/Tax/YE2023/T5) — used for freshness
+#   value       high | med | low   (owner priorities in notes.md first, then a type heuristic)
+#   status      unread | partial | read | stale
+#   pass        pass number it was last read in (0 = not yet)
+#   last_read   YYYY-MM-DD or -
+#   fingerprint content fingerprint at last read — managed by `scan --refresh`; set to - when you (re)read
+#   notes       free-text description (no tabs)
+# Ownership: the agent owns path/value/status/pass/last_read/notes; `scan --refresh` owns the
+# fingerprint column and flips read->stale when a doc changes since it was read. The frontier
+# the deepen pass works is (unread ∪ stale), value-ordered.

@@ -4,7 +4,8 @@
 #
 #   ./scripts/ingest             Pass 1 "read": sweep, scan, read HIGH-value docs
 #   ./scripts/ingest --map       Pass 0 "map": cheap skeleton + build coverage frontier
-#   ./scripts/ingest --deepen    Pass 2+: read the next highest-value unread docs
+#   ./scripts/ingest --deepen    Pass 2+: read the next highest-value unread/stale docs
+#   ./scripts/ingest --fresh     prioritise re-reading STALE (changed) docs over new coverage
 #   ./scripts/ingest --budget N  soft per-pass spend target in USD (e.g. --budget 5)
 #   ./scripts/ingest --watch     live play-by-play of each step
 #   ./scripts/ingest --dry-run   show what would run (no LLM, no cost)
@@ -29,12 +30,13 @@ COVERAGE="$KB_DIR/.ingest/coverage.tsv"
 COST_TSV="$KB_DIR/.ingest/cost.tsv"
 COST_HEADER=$'# cost.tsv — per-run ingest cost ledger (appended by scripts/ingest).\n# Columns: date\tcost_usd\tturns\tduration_ms\tsources\tmode'
 
-DRY_RUN=0; AUTO=0; WATCH=0; SWEEP_ENABLED=1; MODE=read; BUDGET=""
+DRY_RUN=0; AUTO=0; WATCH=0; SWEEP_ENABLED=1; MODE=read; BUDGET=""; FRESH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)  DRY_RUN=1;;
     --auto)     AUTO=1;;
     --watch)    WATCH=1;;
+    --fresh)    FRESH=1;;
     --no-sweep) SWEEP_ENABLED=0;;
     --map)      [ "$MODE" = "deepen" ] && { echo "ingest: --map and --deepen are mutually exclusive" >&2; exit 1; }; MODE=map;;
     --deepen)   [ "$MODE" = "map" ]    && { echo "ingest: --map and --deepen are mutually exclusive" >&2; exit 1; }; MODE=deepen;;
@@ -68,17 +70,27 @@ _render() { if [ "$WATCH" -eq 1 ] && command -v jq >/dev/null 2>&1; then jq -r "
 BUDGET_CLAUSE=""
 [ -n "$BUDGET" ] && BUDGET_CLAUSE=" Spend roughly \$$BUDGET this pass, then stop; the next run resumes the frontier."
 
+# Priority policy over the frontier (unread plus stale). Like a web crawler balancing
+# coverage vs freshness, weighted by importance: value tier dominates, freshness breaks ties.
+if [ "$FRESH" -eq 1 ]; then
+  POLICY="Order the frontier FRESHNESS-FIRST: re-read every stale item (highest value first) before reading any unread item."
+else
+  POLICY="Order the frontier value-first: high tier before med before low, and within a tier re-read stale before unread (wrong data beats missing data) — so a stale high-value doc outranks unread high-value, but a stale low-value doc never preempts unread high-value."
+fi
+COV_CLAUSE="In coverage.tsv use the 7 TAB columns path/value/status/pass/last_read/fingerprint/notes: path is the real raw/-relative path the row covers; when you (re)read a row set status=read or partial, bump pass, set last_read, set fingerprint to a single dash (scan --refresh re-baselines it), and treat any stale row as a re-read candidate."
+FRESHLBL=""; [ "$FRESH" -eq 1 ] && FRESHLBL=" fresh-first"
+
 COMMON_TAIL='Skip the discussion step; treat notes.md as authoritative ("per owner"); mark uncertainty or contradictions with a "> [!review]" callout; and in the log.md entry note what you read in full vs deferred plus every [!review] raised. NEVER record secrets or personal identifiers — neither personal IDs (SIN/SSN, date of birth, passport, full bank/card numbers) NOR credentials/access keys (passwords, recovery codes, API keys, registry Company/Corporation Keys) — note their presence and cite the document, never the value; set the privilege tier (default | business-sensitive | personal-sensitive) on every page. You OWN .ingest/coverage.tsv (the read frontier) and must keep it current; do NOT edit .ingest/manifest.tsv and do NOT git commit — the wrapper advances the manifest and commits.'
 
 case "$MODE" in
   map)
-    PROMPT="Mechanical ingest — MAP pass (Pass 0, deliberately shallow and cheap). Read notes.md and this KB's CLAUDE.md, then .ingest/pending.md. For each New/Changed source, walk it and build the STRUCTURAL SKELETON only: a source page plus entity/concept stubs for what is visibly present, citing sources as 'not read'. Then ENUMERATE the corpus into .ingest/coverage.tsv — one row per document or tight group, columns item<TAB>value<TAB>status<TAB>pass<TAB>last_read — where value is high|med|low (owner priorities in notes.md first, then a type heuristic: financial/legal/contractual/policy = high, receipts/incidental = low) and status=unread. Do NOT read documents in full this pass. $COMMON_TAIL"
+    PROMPT="Mechanical ingest — MAP pass (Pass 0, deliberately shallow and cheap). Read notes.md and this KB's CLAUDE.md, then .ingest/pending.md. For each New/Changed source, walk it and build the STRUCTURAL SKELETON only: a source page plus entity/concept stubs for what is visibly present, citing sources as 'not read'. Then ENUMERATE the corpus into .ingest/coverage.tsv — one row per document or tight group, status=unread, pass=0, last_read=-, fingerprint=-, value=high|med|low (owner priorities in notes.md first, then a type heuristic: financial/legal/contractual/policy = high, receipts/incidental = low). $COV_CLAUSE Do NOT read documents in full this pass. $COMMON_TAIL"
     ;;
   read)
-    PROMPT="Mechanical ingest — READ pass (Pass 1, depth). Read notes.md and this KB's CLAUDE.md, then .ingest/pending.md and .ingest/coverage.tsv. Follow the Ingest/Re-ingest workflow with DEPTH: read the HIGH-value documents in full (per coverage.tsv + owner priorities), extract their facts, upgrade the affected pages from inferred to cited, derive analysis/ pages (financials, subscriptions, assets, rates), and give every real entity its own page. Mark each document you read as status=read (with pass and last_read) in coverage.tsv. Cite sources on every page and never assert a fact inferred only from structure.$BUDGET_CLAUSE $COMMON_TAIL"
+    PROMPT="Mechanical ingest — READ pass (Pass 1, depth). Read notes.md and this KB's CLAUDE.md, then .ingest/pending.md and .ingest/coverage.tsv. Follow the Ingest/Re-ingest workflow with DEPTH: read the high-value documents in full, extract their facts, upgrade the affected pages from inferred to cited, derive analysis/ pages (financials, subscriptions, assets, rates), and give every real entity its own page. $POLICY $COV_CLAUSE Cite sources on every page and never assert a fact inferred only from structure.$BUDGET_CLAUSE $COMMON_TAIL"
     ;;
   deepen)
-    PROMPT="Mechanical ingest — DEEPEN pass (anytime iterative deepening). Read notes.md, this KB's CLAUDE.md, and .ingest/coverage.tsv. Pick the highest-value 'unread' items (owner priorities first, then type heuristic), read them IN FULL, upgrade the affected pages and analysis/ pages, and mark them status=read (pass, last_read) in coverage.tsv. Do not re-read items already 'read'. Cite sources on every page.$BUDGET_CLAUSE $COMMON_TAIL"
+    PROMPT="Mechanical ingest — DEEPEN pass (anytime iterative deepening). Read notes.md, this KB's CLAUDE.md, and .ingest/coverage.tsv, then read the next documents IN FULL and upgrade the affected pages and analysis/ pages. $POLICY $COV_CLAUSE Cite sources on every page.$BUDGET_CLAUSE $COMMON_TAIL"
     ;;
 esac
 
@@ -88,14 +100,15 @@ if [ "$SWEEP_ENABLED" -eq 1 ] && [ -x "$SWEEP" ]; then
   else bash "$SWEEP" || echo "ingest: sweep failed — continuing with existing raw/." >&2; fi
 fi
 
-# --- gate: deepen is driven by the coverage frontier; map/read by scan -------
+# --- freshness: flag stale coverage items up front (no-op if no coverage / raw unresolvable) ---
+[ "$DRY_RUN" -eq 0 ] && bash "$SCAN" --refresh >/dev/null 2>&1 || true
+
+# --- gate: deepen is driven by the coverage frontier (unread ∪ stale); map/read by scan ----
 if [ "$MODE" = "deepen" ]; then
-  # an "unread" item = a non-comment row whose status column (3) is exactly unread
-  if [ ! -f "$COVERAGE" ] || ! awk -F'\t' '$1 !~ /^#/ && $3 == "unread" {f=1} END{exit f?0:1}' "$COVERAGE" 2>/dev/null; then
-    echo "ingest: nothing left to deepen — no 'unread' items in coverage.tsv. Run --map (or a read pass) first if coverage is empty."
+  if [ ! -f "$COVERAGE" ] || ! awk -F'\t' '$1 !~ /^#/ && ($3 == "unread" || $3 == "stale") {f=1} END{exit f?0:1}' "$COVERAGE" 2>/dev/null; then
+    echo "ingest: nothing left to deepen — no 'unread' or 'stale' items in coverage.tsv. Run --map (or a read pass) first if coverage is empty."
     exit 0
   fi
-  bash "$SCAN" >/dev/null 2>&1 || true   # refresh state; don't gate on it
 else
   set +e; bash "$SCAN"; code=$?; set -e
   case "$code" in
@@ -106,7 +119,7 @@ else
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "ingest: [dry-run] mode=$MODE${BUDGET:+ budget=\$$BUDGET}. Would run, in $KB_DIR:"
+  echo "ingest: [dry-run] mode=$MODE$FRESHLBL${BUDGET:+ budget=\$$BUDGET}. Would run, in $KB_DIR:"
   if [ "$HAVE_JQ" -eq 1 ]; then
     echo "  $CLAUDE_BIN -p ${PERM[*]} --model $MODEL --output-format stream-json --verbose \"<$MODE prompt>\""
     echo "  → ${WATCH:+live steps, }final summary, and append cost to .ingest/cost.tsv"
@@ -123,7 +136,7 @@ command -v "$CLAUDE_BIN" >/dev/null 2>&1 \
 [ "$HAVE_JQ" -eq 0 ] && echo "ingest: jq not found — no live steps or cost ledger (install jq to enable)." >&2
 
 SOURCES_N="$(grep -cE '^- ' "$PENDING" 2>/dev/null || true)"
-echo "ingest: $MODE pass${BUDGET:+ (budget \$$BUDGET)} via $CLAUDE_BIN ..."
+echo "ingest: $MODE pass$FRESHLBL${BUDGET:+ (budget \$$BUDGET)} via $CLAUDE_BIN ..."
 
 rc=0
 if [ "$HAVE_JQ" -eq 1 ]; then
@@ -168,8 +181,9 @@ if [ -z "$CHANGED" ]; then
   exit 3
 fi
 
-echo "ingest: advancing manifest baseline + committing ..."
+echo "ingest: advancing manifest baseline + freshness + committing ..."
 "$SCAN" --accept >/dev/null
+"$SCAN" --refresh >/dev/null 2>&1 || true   # baseline freshly-read coverage items (fingerprint the version just read)
 ( cd "$KB_DIR" && git add -A && git commit -q -m "Mechanical ingest — $MODE pass ($(date +%F))" ) \
   || echo "ingest: nothing to commit."
 echo "ingest: done."

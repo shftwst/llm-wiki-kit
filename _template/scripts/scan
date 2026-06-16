@@ -6,6 +6,7 @@
 #
 #   ./scan            detect; write .ingest/pending.md; exit 0 = clean, 10 = pending
 #   ./scan --accept   advance the manifest baseline to current state (used post-ingest)
+#   ./scan --refresh  freshness check: fingerprint read coverage items, flag changed = stale
 #
 # No LLM, no network, no cost. Portable across macOS (bash 3.2 / BSD tools) and Linux.
 
@@ -14,13 +15,17 @@ set -euo pipefail
 die() { printf 'scan: error: %s\n' "$1" >&2; exit 1; }
 
 MODE="detect"
-[ "${1:-}" = "--accept" ] && MODE="accept"
+case "${1:-}" in
+  --accept)  MODE="accept";;
+  --refresh) MODE="refresh";;
+esac
 
 KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RAW_DIR="$KB_DIR/raw"
 STATE_DIR="$KB_DIR/.ingest"
 MANIFEST="$STATE_DIR/manifest.tsv"
 PENDING="$STATE_DIR/pending.md"
+COVERAGE="$STATE_DIR/coverage.tsv"
 DATE="$(date +%F)"
 
 MANIFEST_HEADER=$'# manifest.tsv — ingest baseline. Columns: source_path\tkind\tfingerprint\tlast_ingested\n# Managed by scripts/scan (--accept). Do not edit by hand.'
@@ -57,6 +62,36 @@ kind_of() {
   elif [ -d "$1" ]; then echo "directory"
   else echo "file"; fi
 }
+
+# --- refresh: freshness check over coverage.tsv (crawler-style re-fetch detection) -------
+# For each read/partial coverage row whose `path` resolves under raw/: fingerprint it.
+# Empty fingerprint -> baseline it (record the version that was read). Changed since the
+# baseline -> flip status to `stale`. Importance ('value') is untouched — this only flags
+# AGE; the deepen pass weighs age × value when picking what to (re-)read.
+if [ "$MODE" = "refresh" ]; then
+  [ -f "$COVERAGE" ] || { echo "scan: no coverage.tsv yet — run a map pass first."; exit 0; }
+  tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
+  grep '^#' "$COVERAGE" > "$tmp" || true
+  checked=0; baselined=0; staled=0
+  while IFS=$'\t' read -r path value status pass last_read fp notes; do
+    [ -z "${path:-}" ] && continue
+    if [ "${status:-}" = "read" ] || [ "${status:-}" = "partial" ]; then
+      full="$RAW_DIR/$path"
+      if [ -e "$full" ] || [ -L "$full" ]; then
+        checked=$((checked + 1))
+        cur="$(fingerprint "$full")"
+        if [ -z "${fp:-}" ] || [ "$fp" = "-" ]; then fp="$cur"; baselined=$((baselined + 1))
+        elif [ "$cur" != "$fp" ]; then status="stale"; staled=$((staled + 1)); fi
+      fi
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$path" "${value:-}" "${status:-}" "${pass:-}" "${last_read:-}" "${fp:--}" "${notes:-}" >> "$tmp"
+  done < <(grep -v '^#' "$COVERAGE")
+  mv "$tmp" "$COVERAGE"; trap - EXIT
+  printf 'scan: freshness — %d checked, %d baselined, %d now stale → %s\n' \
+    "$checked" "$baselined" "$staled" "${COVERAGE#"$KB_DIR"/}"
+  [ "$staled" -gt 0 ] && exit 10 || exit 0
+fi
 
 SEEN_FILE="$(mktemp)"; trap 'rm -f "$SEEN_FILE"' EXIT
 NEW=(); CHANGED=(); NEWMAN=()
