@@ -4,6 +4,8 @@
 #   ./scripts/publish <role>            filter the role's pages and build the site with Quartz
 #   ./scripts/publish <role> --serve    build and serve a live local preview (localhost:8080)
 #   ./scripts/publish <role> --dry-run  report what would be included/excluded; write nothing
+#   ./scripts/publish --all             build every role's site into .publish/sites/<role>/
+#   ./scripts/publish --all --dry-run   report include/exclude for every role; write nothing
 #
 # A build stages the filtered markdown at .publish/<role>/content/ before building, so that
 # content is always available (e.g. for a non-Quartz generator); if git/npm are missing the
@@ -12,101 +14,153 @@
 # Roles and the privilege tiers each may see are defined in .publish/roles.tsv. Pages above a
 # role's clearance are excluded; links to excluded pages and all ../raw/ citation links are
 # de-linked so the published site has no broken links and no paths into private sources.
-# index.md and overview.md are skipped (they catalog the whole graph); Quartz builds its own
-# navigation. If Quartz is not present it is auto-installed once (git clone + npm i) when git
-# and npm are available; the install lives at QUARTZ_DIR (default .publish/quartz, gitignored
-# and disposable). Without git/npm the filtered content is staged (the filtering needs no Node).
+# index.md and overview.md are skipped (they catalog the whole graph); a minimal role-view
+# index.md is generated so the site root resolves. Quartz builds its own navigation.
+#
+# One Quartz instance serves one role at a time, so --all writes each role to its own static
+# output dir (.publish/sites/<role>/) you can open directly or host; preview one live with
+# `publish <role> --serve`. If Quartz is not present it is auto-installed once (git clone +
+# npm i) when git and npm are available; the install lives at QUARTZ_DIR (default
+# .publish/quartz, gitignored and disposable). Without git/npm the filtered content is still
+# staged (the filtering needs no Node).
 
 set -eu
 KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WIKI="$KB_DIR/wiki"
 ROLES="$KB_DIR/.publish/roles.tsv"
-ROLE="${1:-}"; MODE=build
-case "${2:-}" in --dry-run) MODE=dry;; --serve) MODE=serve;; "") ;; *) echo "publish: unknown arg '$2'" >&2; exit 1;; esac
-
-list_roles() { grep -v '^#' "$ROLES" 2>/dev/null | cut -f1 | paste -sd' ' -; }
-[ -f "$ROLES" ] || { echo "publish: no .publish/roles.tsv" >&2; exit 1; }
-[ -n "$ROLE" ] || { echo "usage: publish <role> [--dry-run|--stage]   (roles: $(list_roles))"; exit 1; }
-[ -d "$WIKI" ] || { echo "publish: no wiki/ yet."; exit 0; }
-
-allowed="$(awk -F'\t' -v r="$ROLE" '$1==r{print $2; exit}' "$ROLES")"
-[ -n "$allowed" ] || { echo "publish: role '$ROLE' not in roles.tsv (have: $(list_roles))" >&2; exit 1; }
-allow_re="^($(printf '%s' "$allowed" | tr -d ' ' | tr ',' '|'))$"
-fm_priv() { awk -F': ' '/^privilege:/{print $2; exit}' "$1"; }
-
-inc_file="$(mktemp)"; trap 'rm -f "$inc_file"' EXIT
-incn=0; exc=0; pP=0; pB=0; pD=0
-for f in $(find "$WIKI" -name '*.md' | sort); do
-  base="$(basename "$f" .md)"
-  case "$base" in index|overview) continue;; esac     # catalogs; Quartz builds nav
-  pv="$(fm_priv "$f")"; pv="${pv:-default}"
-  if printf '%s' "$pv" | grep -qE "$allow_re"; then
-    printf '%s\n' "$base" >> "$inc_file"; incn=$((incn+1))
-    case "$pv" in personal-sensitive) pP=$((pP+1));; business-sensitive) pB=$((pB+1));; *) pD=$((pD+1));; esac
-  else
-    exc=$((exc+1))
-  fi
-done
-
-printf 'publish[%s]: clearance = %s\n' "$ROLE" "$allowed"
-printf '  include %d (default %d, business %d, personal %d) · exclude %d above clearance\n' "$incn" "$pD" "$pB" "$pP" "$exc"
-[ "$MODE" = "dry" ] && { echo "  (dry-run; nothing staged)"; exit 0; }
-
-OUT="$KB_DIR/.publish/$ROLE/content"
-rm -rf "$KB_DIR/.publish/$ROLE"; mkdir -p "$OUT"
-for f in $(find "$WIKI" -name '*.md' | sort); do
-  base="$(basename "$f" .md)"; grep -qxF "$base" "$inc_file" || continue
-  rel="${f#"$WIKI"/}"; dest="$OUT/$rel"; mkdir -p "$(dirname "$dest")"
-  INC="$inc_file" perl -pe '
-    BEGIN { open my $fh,"<",$ENV{INC}; while(<$fh>){chomp; $inc{$_}=1} }
-    s{(\[\[([^]|#]+)(?:#[^]|]*)?(?:\|([^]]+))?\]\])}{ exists $inc{$2} ? $1 : ($3 // $2) }ge;  # de-link excluded
-    s{\[([^\]]*)\]\(\.\.\/raw\/[^)]*\)}{$1}g;                                                   # de-link raw citations
-  ' "$f" > "$dest"
-done
-# Quartz serves content/index.md at the site root; the wiki's index/overview were skipped,
-# so synthesize a minimal landing page for this role view (else "/" 404s).
-kbname="$(basename "$KB_DIR")"
-{
-  printf -- '---\ntitle: %s (%s view)\n---\n\n' "$kbname" "$ROLE"
-  printf '# %s\n\nThe **%s** view of this knowledge base. Browse with the explorer or search, or start from the pages below.\n\n## Pages\n\n' "$kbname" "$ROLE"
-  while IFS= read -r s; do [ -n "$s" ] && printf -- '- [[%s]]\n' "$s"; done < "$inc_file"
-} > "$OUT/index.md"
-
-printf '  staged → %s\n' "${OUT#"$KB_DIR"/}"
-
 QZ="${QUARTZ_DIR:-$KB_DIR/.publish/quartz}"
 
-# One-off Quartz install if missing. It is disposable (gitignored under .publish/); delete
-# the dir to force a fresh clone next run.
-if [ ! -f "$QZ/package.json" ]; then
-  if command -v git >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
-    printf 'publish[%s]: Quartz not found — one-off install into %s (clone + npm i, may take a minute) ...\n' "$ROLE" "${QZ#"$KB_DIR"/}"
-    rm -rf "$QZ"
-    if git clone --depth 1 https://github.com/jackyzha0/quartz "$QZ" >/dev/null 2>&1 && ( cd "$QZ" && npm i >/dev/null 2>&1 ); then
-      echo "  Quartz installed."
+ROLE="${1:-}"; MODE=build; ALL=0
+case "$ROLE" in --all|all) ALL=1; ROLE="";; esac
+case "${2:-}" in --dry-run) MODE=dry;; --serve) MODE=serve;; "") ;; *) echo "publish: unknown arg '$2'" >&2; exit 1;; esac
+if [ "$ALL" = 1 ] && [ "$MODE" = serve ]; then
+  echo "publish: --all builds every role's site; it can't serve them all on one port." >&2
+  echo "  build them all, then serve one: ./scripts/publish <role> --serve" >&2
+  exit 1
+fi
+
+list_roles() { grep -v '^#' "$ROLES" 2>/dev/null | cut -f1 | paste -sd' ' -; }
+all_roles()  { grep -v '^#' "$ROLES" 2>/dev/null | cut -f1; }
+fm_priv() { awk -F': ' '/^privilege:/{print $2; exit}' "$1"; }
+
+[ -f "$ROLES" ] || { echo "publish: no .publish/roles.tsv" >&2; exit 1; }
+[ "$ALL" = 1 ] || [ -n "$ROLE" ] || { echo "usage: publish <role> [--dry-run|--serve] | publish --all [--dry-run]   (roles: $(list_roles))"; exit 1; }
+[ -d "$WIKI" ] || { echo "publish: no wiki/ yet."; exit 0; }
+
+# stage_role <role> <content-dir>: filter the role's cleared pages into <content-dir>, de-link
+# anything outside the set, and generate a landing index.md. Prints an include/exclude summary.
+# In dry mode it prints the summary and writes nothing. Returns 1 if the role is unknown.
+stage_role() {
+  role="$1"; out="$2"
+  allowed="$(awk -F'\t' -v r="$role" '$1==r{print $2; exit}' "$ROLES")"
+  [ -n "$allowed" ] || { echo "publish: role '$role' not in roles.tsv (have: $(list_roles))" >&2; return 1; }
+  allow_re="^($(printf '%s' "$allowed" | tr -d ' ' | tr ',' '|'))$"
+
+  inc_file="$(mktemp)"
+  incn=0; exc=0; pP=0; pB=0; pD=0
+  for f in $(find "$WIKI" -name '*.md' | sort); do
+    base="$(basename "$f" .md)"
+    case "$base" in index|overview) continue;; esac     # catalogs; Quartz builds nav
+    pv="$(fm_priv "$f")"; pv="${pv:-default}"
+    if printf '%s' "$pv" | grep -qE "$allow_re"; then
+      printf '%s\n' "$base" >> "$inc_file"; incn=$((incn+1))
+      case "$pv" in personal-sensitive) pP=$((pP+1));; business-sensitive) pB=$((pB+1));; *) pD=$((pD+1));; esac
     else
-      rm -rf "$QZ"   # leave nothing half-built; a re-run retries cleanly
-      printf 'publish[%s]: Quartz install failed (network or npm). Content is staged at %s.\n' "$ROLE" "${OUT#"$KB_DIR"/}" >&2
-      exit 0
+      exc=$((exc+1))
     fi
+  done
+
+  printf 'publish[%s]: clearance = %s\n' "$role" "$allowed"
+  printf '  include %d (default %d, business %d, personal %d) · exclude %d above clearance\n' "$incn" "$pD" "$pB" "$pP" "$exc"
+  if [ "$MODE" = dry ]; then rm -f "$inc_file"; return 0; fi
+
+  rm -rf "$out"; mkdir -p "$out"
+  for f in $(find "$WIKI" -name '*.md' | sort); do
+    base="$(basename "$f" .md)"; grep -qxF "$base" "$inc_file" || continue
+    rel="${f#"$WIKI"/}"; dest="$out/$rel"; mkdir -p "$(dirname "$dest")"
+    INC="$inc_file" perl -pe '
+      BEGIN { open my $fh,"<",$ENV{INC}; while(<$fh>){chomp; $inc{$_}=1} }
+      s{(\[\[([^]|#]+)(?:#[^]|]*)?(?:\|([^]]+))?\]\])}{ exists $inc{$2} ? $1 : ($3 // $2) }ge;  # de-link excluded
+      s{\[([^\]]*)\]\(\.\.\/raw\/[^)]*\)}{$1}g;                                                   # de-link raw citations
+    ' "$f" > "$dest"
+  done
+
+  # Quartz serves content/index.md at the site root; the wiki's index/overview were skipped,
+  # so synthesize a minimal landing page for this role view (else "/" 404s).
+  kbname="$(basename "$KB_DIR")"
+  {
+    printf -- '---\ntitle: %s (%s view)\n---\n\n' "$kbname" "$role"
+    printf '# %s\n\nThe **%s** view of this knowledge base. Browse with the explorer or search, or start from the pages below.\n\n## Pages\n\n' "$kbname" "$role"
+    while IFS= read -r s; do [ -n "$s" ] && printf -- '- [[%s]]\n' "$s"; done < "$inc_file"
+  } > "$out/index.md"
+
+  rm -f "$inc_file"
+  printf '  staged → %s\n' "${out#"$KB_DIR"/}"
+}
+
+# ensure_quartz: make $QZ a working Quartz checkout (one-off clone + npm i + plugin install).
+# Returns 0 when ready, 1 when it can't be (prints why); the install is disposable.
+ensure_quartz() {
+  if [ ! -f "$QZ/package.json" ]; then
+    if command -v git >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+      printf 'publish: Quartz not found — one-off install into %s (clone + npm i, may take a minute) ...\n' "${QZ#"$KB_DIR"/}"
+      rm -rf "$QZ"
+      if git clone --depth 1 https://github.com/jackyzha0/quartz "$QZ" >/dev/null 2>&1 && ( cd "$QZ" && npm i >/dev/null 2>&1 ); then
+        echo "  Quartz installed."
+      else
+        rm -rf "$QZ"   # leave nothing half-built; a re-run retries cleanly
+        echo "publish: Quartz install failed (network or npm)." >&2
+        return 1
+      fi
+    else
+      echo "publish: git and npm are needed to auto-install Quartz." >&2
+      echo "  install Node and git, then re-run (or point QUARTZ_DIR at an existing Quartz)." >&2
+      return 1
+    fi
+  fi
+  # Quartz v5+ generates its plugin barrel (.quartz/) via `plugin install`; a fresh clone
+  # needs it, else the build fails with: Could not resolve "../../.quartz/plugins".
+  if [ ! -d "$QZ/.quartz" ]; then
+    printf 'publish: installing Quartz plugins (one-off) ...\n'
+    ( cd "$QZ" && npx quartz plugin install ) || { echo "publish: 'npx quartz plugin install' failed." >&2; return 1; }
+  fi
+  return 0
+}
+
+if [ "$ALL" = 0 ]; then
+  OUT="$KB_DIR/.publish/$ROLE/content"
+  stage_role "$ROLE" "$OUT" || exit 1
+  [ "$MODE" = dry ] && exit 0
+  ensure_quartz || { printf 'publish[%s]: content staged at %s; install Node+git (or set QUARTZ_DIR) and re-run.\n' "$ROLE" "${OUT#"$KB_DIR"/}" >&2; exit 0; }
+  rm -rf "$QZ/content"; cp -R "$OUT" "$QZ/content"
+  if [ "$MODE" = serve ]; then
+    printf 'publish[%s]: serving live preview at http://localhost:8080 (Ctrl-C to stop) ...\n' "$ROLE"
+    ( cd "$QZ" && npx quartz build --serve )
   else
-    printf 'publish[%s]: git and npm are needed to auto-install Quartz. Content staged at %s.\n' "$ROLE" "${OUT#"$KB_DIR"/}" >&2
-    echo "  install Node and git, then re-run (or point QUARTZ_DIR at an existing Quartz)."
+    ( cd "$QZ" && npx quartz build ) && printf 'publish[%s]: built → %s/public\n' "$ROLE" "$QZ"
+  fi
+else
+  # --all: stage + build every role into its own static output dir.
+  QZOK=1
+  [ "$MODE" = dry ] || ensure_quartz || QZOK=0
+  built=""
+  for role in $(all_roles); do
+    [ -n "$role" ] || continue
+    OUT="$KB_DIR/.publish/$role/content"
+    stage_role "$role" "$OUT" || continue
+    { [ "$MODE" = dry ] || [ "$QZOK" = 0 ]; } && continue
+    rm -rf "$QZ/content"; cp -R "$OUT" "$QZ/content"
+    ( cd "$QZ" && npx quartz build ) >/dev/null
+    site="$KB_DIR/.publish/sites/$role"
+    rm -rf "$site"; mkdir -p "$site"; cp -R "$QZ/public/." "$site/"
+    printf '  site → %s\n' "${site#"$KB_DIR"/}"
+    built="$built $role"
+  done
+  [ "$MODE" = dry ] && exit 0
+  if [ "$QZOK" = 0 ]; then
+    echo "publish --all: content staged per role under .publish/<role>/content/; Quartz unavailable, no sites built." >&2
     exit 0
   fi
-fi
-
-# Quartz v5+ generates its plugin barrel (.quartz/) via `plugin install`; a fresh clone
-# needs it, else the build fails with: Could not resolve "../../.quartz/plugins".
-if [ ! -d "$QZ/.quartz" ]; then
-  printf 'publish[%s]: installing Quartz plugins (one-off) ...\n' "$ROLE"
-  ( cd "$QZ" && npx quartz plugin install ) || { echo "publish: 'npx quartz plugin install' failed." >&2; exit 1; }
-fi
-
-rm -rf "$QZ/content"; cp -R "$OUT" "$QZ/content"
-if [ "$MODE" = "serve" ]; then
-  printf 'publish[%s]: serving live preview at http://localhost:8080 (Ctrl-C to stop) ...\n' "$ROLE"
-  ( cd "$QZ" && npx quartz build --serve )
-else
-  ( cd "$QZ" && npx quartz build ) && printf 'publish[%s]: built → %s/public\n' "$ROLE" "$QZ"
+  printf 'publish --all: built%s → .publish/sites/<role>/\n' "$built"
+  echo "  open a site directly (open .publish/sites/<role>/index.html) or serve one live: ./scripts/publish <role> --serve"
 fi

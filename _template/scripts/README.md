@@ -80,11 +80,18 @@ a row to make a view for any role.
 ./scripts/publish team             # filter team-cleared pages and build the site with Quartz
 ./scripts/publish team --serve     # build + live preview at http://localhost:8080
 ./scripts/publish client --dry-run # report what each role would include/exclude
+./scripts/publish --all            # build every role's site into .publish/sites/<role>/
+./scripts/publish --all --dry-run  # report include/exclude for every role; write nothing
 ```
 
 Pages above the role's clearance are excluded; links to excluded pages and all `../raw/`
 citation links are de-linked, so the site has no broken links and no paths into private
-sources. `index.md` and `overview.md` are skipped, since Quartz builds its own navigation.
+sources. `index.md` and `overview.md` are skipped (they catalog the whole graph); a minimal
+role-view `index.md` is generated so the site root resolves, and Quartz builds its own nav.
+
+One Quartz instance serves one role at a time, so `--all` writes each role to its own static
+output dir (`.publish/sites/<role>/`) you can open or host; preview one live with
+`publish <role> --serve`.
 
 [Quartz](https://quartz.jzhao.xyz/) is an Obsidian-aware static site generator: it understands
 `[[wikilinks]]` and callouts, unlike plain GitHub. If it is not present, `publish` installs it
