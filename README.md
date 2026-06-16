@@ -62,6 +62,13 @@ script: no LLM, no cost. `scripts/ingest-new.sh` runs the scan and, if anything 
 ingests it via headless Claude Code, then advances the baseline and commits. Run it by
 hand, or schedule it (`--auto`) with the cron/launchd snippets in `scripts/README.md`.
 
+Ingestion is **progressive**: a cheap `--map` pass triages the corpus into a value-ranked
+read frontier (`.ingest/coverage.tsv`), a default read pass reads the high-value documents
+in full, and repeatable `--deepen` passes go further — an anytime, iterative-deepening loop
+you stop whenever you like. Each KB ships an operator guide,
+[`docs/deepening.md`](_template/docs/deepening.md), covering the deepening algorithm, the
+coverage-vs-manifest ledger ownership, and a guardrailed human playbook.
+
 ## The pattern in one paragraph
 
 Instead of RAG re-deriving knowledge on every query, the LLM **incrementally builds and

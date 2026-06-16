@@ -58,6 +58,9 @@ pass reads the high-value docs; repeat `--deepen` to read progressively more, va
 Stop after any pass — the wiki is usable throughout and the next run resumes the frontier.
 `--budget $N` caps a pass; watch actual spend in `.ingest/cost.tsv`.
 
+Full reference — the two ledgers, the algorithm, and a guardrailed operator playbook:
+[`../docs/deepening.md`](../docs/deepening.md).
+
 Flags combine (e.g. `--watch --auto`). Without `--watch` you get the agent's final summary
 when it finishes; **`log.md` is the durable record either way** (what was ingested + every
 `[!review]` flag). `--watch` streams each step live (read/write/etc.) — it uses

@@ -225,6 +225,8 @@ pass and resume later; the wiki is usable throughout. The frontier is `.ingest/c
 Always pick the next work by value order, mark items `read` as you go, and converge toward
 fully-read. Read state is memoized in `coverage.tsv`, so no document is read twice.
 
+Full model, ledger ownership, and the human operator playbook: **`docs/deepening.md`**.
+
 ### Re-ingest (a source changed)
 
 1. Re-read the source. Compare against its existing source page.
