@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# stats — summarise the ingestion state of this knowledge base. No LLM, no cost.
+#
+#   ./scripts/stats           print the report
+#   ./scripts/stats --check   also resolve each coverage path under raw/ (flags missing/unreadable)
+#                             (only meaningful where raw/ resolves — your real machine, not a container)
+#
+# Reads .ingest/{coverage,manifest,cost}.tsv and wiki/. Read-only; writes nothing.
+
+set -euo pipefail
+
+KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+COVERAGE="$KB_DIR/.ingest/coverage.tsv"
+MANIFEST="$KB_DIR/.ingest/manifest.tsv"
+COST="$KB_DIR/.ingest/cost.tsv"
+WIKI="$KB_DIR/wiki"
+RAW="$KB_DIR/raw"
+CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
+
+rule() { printf '%s\n' "────────────────────────────────────────────────"; }
+have() { [ -f "$1" ] && [ "$(grep -vc '^#' "$1" 2>/dev/null || echo 0)" -gt 0 ]; }
+
+printf '\n══════ %s — ingestion stats ══════\n' "$(basename "$KB_DIR")"
+
+# --- sources (manifest) ------------------------------------------------------
+nsrc=0; [ -f "$MANIFEST" ] && nsrc=$(grep -vc '^#' "$MANIFEST" 2>/dev/null || echo 0)
+printf '\nSOURCES        %s tracked in raw/ (manifest)\n' "$nsrc"
+
+# --- documents (coverage frontier) -------------------------------------------
+printf '\nDOCUMENTS (coverage frontier)\n'; rule
+if have "$COVERAGE"; then
+  awk -F'\t' '
+    function bar(n,t,  w,f,s,i){w=22; if(t<=0)return; f=int(n*w/t+0.5); s="";
+      for(i=0;i<f;i++)s=s"#"; for(i=f;i<w;i++)s=s"."; return s}
+    $1 ~ /^#/ || $1=="" {next}
+    {tot++; st[$3]++; val[$2]++;
+     if($3=="unread"||$3=="stale"){fr++; if($2=="high")hf++}}
+    END{
+      printf "  total tracked   %d\n", tot
+      printf "  read     %4d  %s\n", st["read"]+0,    bar(st["read"]+0,tot)
+      printf "  partial  %4d  %s\n", st["partial"]+0, bar(st["partial"]+0,tot)
+      printf "  unread   %4d  %s\n", st["unread"]+0,  bar(st["unread"]+0,tot)
+      printf "  stale    %4d  %s\n", st["stale"]+0,   bar(st["stale"]+0,tot)
+      printf "  by value        high %d / med %d / low %d\n", val["high"]+0, val["med"]+0, val["low"]+0
+      printf "  frontier        %d to do (unread+stale); %d of them high-value\n", fr+0, hf+0
+      if(tot>0) printf "  coverage        %d%% read or partial\n", int(((st["read"]+0)+(st["partial"]+0))*100/tot)
+    }' "$COVERAGE"
+else
+  printf '  (none yet — run ./scripts/ingest --map)\n'
+fi
+
+# --- read attempts (from wiki citations) — surfaces "unreadable" docs --------
+printf '\nREAD ATTEMPTS (from wiki ## Sources)\n'; rule
+if [ -d "$WIKI" ]; then
+  rin=$(grep -rhoE 'read in full' "$WIKI" --include='*.md' 2>/dev/null | wc -l | tr -d ' ')
+  nrd=$(grep -rhoE 'not read' "$WIKI" --include='*.md' 2>/dev/null | wc -l | tr -d ' ')
+  printf '  read in full    %s\n  not read        %s\n' "$rin" "$nrd"
+  reasons=$(grep -rhoE 'not read\*? \(([^)]*)\)' "$WIKI" --include='*.md' 2>/dev/null \
+            | sed -E 's/.*\(([^)]*)\).*/\1/' | sed -E 's/[,;].*$//' | sort | uniq -c | sort -rn)
+  if [ -n "$reasons" ]; then printf '  not-read reasons (incl. timed-out = unreadable this pass):\n'
+    printf '%s\n' "$reasons" | sed 's/^/    /'
+  fi
+else
+  printf '  (no wiki/ yet)\n'
+fi
+
+# --- wiki pages --------------------------------------------------------------
+printf '\nWIKI PAGES\n'; rule
+if [ -d "$WIKI" ]; then
+  npages=$(find "$WIKI" -name '*.md' | wc -l | tr -d ' ')
+  printf '  total           %s\n' "$npages"
+  printf '  by type         '
+  grep -rhoE '^type: *[a-z]+' "$WIKI" --include='*.md' 2>/dev/null | awk '{print $2}' \
+    | sort | uniq -c | sort -rn | awk '{printf "%s:%s  ", $2, $1}'; printf '\n'
+  printf '  by privilege    '
+  grep -rhoE '^privilege: *[a-z-]+' "$WIKI" --include='*.md' 2>/dev/null | awk '{print $2}' \
+    | sort | uniq -c | sort -rn | awk '{printf "%s:%s  ", $2, $1}'; printf '\n'
+  rev=$(grep -rl '\[!review\]' "$WIKI" --include='*.md' 2>/dev/null | wc -l | tr -d ' ')
+  revn=$(grep -rho '\[!review\]' "$WIKI" --include='*.md' 2>/dev/null | wc -l | tr -d ' ')
+  printf '  open [!review]   %s flag(s) across %s page(s)\n' "$revn" "$rev"
+else
+  printf '  (none yet)\n'
+fi
+
+# --- cost --------------------------------------------------------------------
+printf '\nCOST (.ingest/cost.tsv)\n'; rule
+if have "$COST"; then
+  awk -F'\t' '
+    $1 ~ /^#/ || $1=="" {next}
+    {tot+=$2; n++; mode[$6]+=$2; moden[$6]++; model[($7==""?"(unrecorded)":$7)]+=$2; modeln[($7==""?"(unrecorded)":$7)]++}
+    END{
+      printf "  total spend     $%.2f across %d pass(es)\n", tot, n
+      printf "  by pass mode:\n"; for(k in mode) printf "    %-12s $%.2f  (%d)\n", k, mode[k], moden[k]
+      printf "  by model:\n";     for(k in model) printf "    %-22s $%.2f  (%d)\n", k, model[k], modeln[k]
+    }' "$COST"
+else
+  printf '  (no runs yet)\n'
+fi
+
+# --- optional: resolve coverage paths on disk (missing/unreadable) -----------
+if [ "$CHECK" -eq 1 ] && have "$COVERAGE"; then
+  printf '\nDISK CHECK (--check)\n'; rule
+  miss=0; ok=0
+  while IFS=$'\t' read -r path _v _s _p _l _f _n; do
+    case "${path:-}" in ''|'#'*) continue;; esac
+    if [ -e "$RAW/$path" ] || [ -L "$RAW/$path" ]; then ok=$((ok+1)); else miss=$((miss+1)); fi
+  done < <(grep -v '^#' "$COVERAGE")
+  printf '  resolvable      %d\n  missing/unreadable on disk  %d\n' "$ok" "$miss"
+  [ "$miss" -gt 0 ] && printf '  (note: in a container, OneDrive paths will all show missing — run on your Mac)\n'
+fi
+
+printf '\n'

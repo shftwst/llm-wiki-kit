@@ -24,6 +24,19 @@ once curated, a source leaves the shared area and contributors can't alter or de
 It runs automatically as the first step of `ingest` (disable with `--no-sweep`).
 Name collisions never overwrite a `raw/` source — the incoming item is timestamp-suffixed.
 
+## `stats` — ingestion summary
+
+A read-only dashboard over the state ledgers and `wiki/`. No LLM, no cost.
+
+```sh
+./scripts/stats          # sources, coverage (read/partial/unread/stale), wiki pages, cost
+./scripts/stats --check  # also resolve each coverage path on disk (flags missing/unreadable)
+```
+
+Reports: documents by read status and value tier, the remaining frontier, read-vs-not-read
+counts with not-read reasons (timed-out = unreadable this pass), wiki pages by type and
+privilege tier, open `[!review]` flags, and total cost broken down by pass mode and model.
+
 ## `scan` — detect changes
 
 Walks `raw/`, fingerprints each source (following symlinks into living drives), and diffs
