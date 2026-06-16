@@ -13,3 +13,6 @@ Thumbs.db
 # inbox/ is transient staging (swept into raw/); don't commit drops, keep the dir + README
 inbox/*
 !inbox/README.md
+
+# publish build artifacts (per-role staged content + generated sites); roles.tsv stays tracked
+.publish/*/

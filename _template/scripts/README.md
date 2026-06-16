@@ -70,6 +70,27 @@ CLASSIFY_FLOOR=default ./scripts/classify   # change the fail-safe floor
 This is Phase 1 of the sensitivity-aware routing design ([`docs/routing.md`] in the kit).
 It only tags; nothing routes on the tag yet. Run it after `--map` populates the frontier.
 
+## `publish`: role-filtered views for the web
+
+Build a read-only, shareable view of the wiki for a role, including only the pages that role
+is cleared to see. Roles and their allowed privilege tiers live in `.publish/roles.tsv`; add
+a row to make a view for any role.
+
+```sh
+./scripts/publish team             # stage team-cleared pages; build with Quartz if set up
+./scripts/publish client --dry-run # report what each role would include/exclude
+./scripts/publish owner --stage    # stage filtered content only; do not build
+```
+
+Pages above the role's clearance are excluded; links to excluded pages and all `../raw/`
+citation links are de-linked, so the site has no broken links and no paths into private
+sources. `index.md` and `overview.md` are skipped, since Quartz builds its own navigation.
+
+[Quartz](https://quartz.jzhao.xyz/) is an Obsidian-aware static site generator: it understands
+`[[wikilinks]]` and callouts, unlike plain GitHub. One-time setup: clone it, run `npm i`,
+point `QUARTZ_DIR` at it. Without Quartz, the filtered content is staged under
+`.publish/<role>/content/` with build instructions.
+
 ## `scan`: detect changes
 
 Walks `raw/`, fingerprints each source (following symlinks into living drives), and diffs
