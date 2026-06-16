@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # ingest-new.sh — detect new/changed sources and ingest them via headless Claude Code.
 #
-#   ./scripts/ingest-new.sh            supervised: scan, then ingest pending (final summary)
-#   ./scripts/ingest-new.sh --watch    supervised + live play-by-play of each step
-#   ./scripts/ingest-new.sh --dry-run  detect only; print what would run (no LLM, no cost)
-#   ./scripts/ingest-new.sh --auto     unattended permissions (for cron / launchd)
+#   ./scripts/ingest-new.sh             supervised: sweep inbox→raw, scan, then ingest pending
+#   ./scripts/ingest-new.sh --watch     supervised + live play-by-play of each step
+#   ./scripts/ingest-new.sh --dry-run   detect only; print what would run (no LLM, no cost)
+#   ./scripts/ingest-new.sh --auto      unattended permissions (for cron / launchd)
+#   ./scripts/ingest-new.sh --no-sweep  skip the inbox→raw sweep; ingest existing raw/ only
 #
 # Flags combine (e.g. --watch --auto). Set CLAUDE_BIN=/path/to/claude if not on PATH.
 #
@@ -21,16 +22,18 @@ PENDING="$KB_DIR/.ingest/pending.md"
 COST_TSV="$KB_DIR/.ingest/cost.tsv"
 COST_HEADER=$'# cost.tsv — per-run ingest cost ledger (appended by scripts/ingest-new.sh).\n# Columns: date\tcost_usd\tturns\tduration_ms\tsources\tmode'
 
-DRY_RUN=0; AUTO=0; WATCH=0
+DRY_RUN=0; AUTO=0; WATCH=0; SWEEP_ENABLED=1
 for a in "${@:-}"; do
   case "$a" in
     "") ;;
-    --dry-run) DRY_RUN=1;;
-    --auto)    AUTO=1;;
-    --watch)   WATCH=1;;
+    --dry-run)  DRY_RUN=1;;
+    --auto)     AUTO=1;;
+    --watch)    WATCH=1;;
+    --no-sweep) SWEEP_ENABLED=0;;
     *) echo "ingest-new: unknown arg: $a" >&2; exit 1;;
   esac
 done
+SWEEP="$KB_DIR/scripts/sweep.sh"
 
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 MODEL="${CLAUDE_MODEL:-claude-opus-4-8}"   # ingest model; override: CLAUDE_MODEL=claude-sonnet-4-6
@@ -61,6 +64,15 @@ reconcile the affected wiki pages. This is an UNATTENDED ingest: skip the discus
 mark anything uncertain or contradictory with a "> [!review]" callout on the page, and
 summarize what you did plus every [!review] you raised in the log.md entry. Do NOT edit
 .ingest/manifest.tsv and do NOT git commit — the wrapper advances the manifest and commits.'
+
+# --- sweep inbox → raw (the protected store) ---------------------------------
+if [ "$SWEEP_ENABLED" -eq 1 ] && [ -x "$SWEEP" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    bash "$SWEEP" --dry-run || true
+  else
+    bash "$SWEEP" || echo "ingest-new: sweep failed — continuing with existing raw/." >&2
+  fi
+fi
 
 # --- detect ------------------------------------------------------------------
 set +e; bash "$SCAN"; code=$?; set -e

@@ -9,3 +9,7 @@ Thumbs.db
 
 # Mechanical-ingest run logs (manifest state IS committed; logs are not)
 .ingest/auto.log
+
+# inbox/ is transient staging (swept into raw/); don't commit drops, keep the dir + README
+inbox/*
+!inbox/README.md

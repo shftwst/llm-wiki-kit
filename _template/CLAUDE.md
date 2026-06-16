@@ -25,7 +25,8 @@ the `llm-wiki-kit` repo at `docs/llm-wiki-pattern.md`.
 {{KB_NAME}}/
 ├── CLAUDE.md          # this schema
 ├── README.md          # human-facing intro + Obsidian setup
-├── raw/               # sources (files, directories, symlinks to living docs)
+├── inbox/             # shareable staging; scripts/sweep.sh MOVES drops into raw/
+├── raw/               # sources (files, directories, symlinks) — protected, never shared
 ├── wiki/              # the wiki (Obsidian vault root) — you own everything here
 │   ├── index.md       # content catalog of every wiki page
 │   └── overview.md    # the evolving top-level synthesis / home page
@@ -57,6 +58,18 @@ Support re-ingesting updates — see the **Re-ingest** workflow.
 > writing *through* a symlink to a living source. The human owns `raw/` entirely. When a
 > source needs to change, that happens at its origin; your job is to re-ingest the change,
 > never to make it.
+
+### Intake & sharing (`inbox/`)
+
+`inbox/` is a **shareable staging area** — the one directory exposed to contributors.
+People drop files or folders into it; `scripts/sweep.sh` then **moves** each item into
+`raw/`. Because the sweep *moves* (not copies), a curated source leaves the shared area
+entirely, so contributors can never read, alter, or delete the real `raw/` source.
+
+- **Never share `raw/` or the KB root — share only `inbox/`** (e.g. point `inbox/` at a
+  shared cloud folder, or share just that subdirectory).
+- **You ignore `inbox/` entirely.** Only `raw/` is a source. Never read, ingest from, or
+  write to `inbox/` — the sweep is a plain script, run before ingest, not your job.
 
 Obsidian cannot render non-markdown sources (`.docx`, `.xlsx`, PDFs, etc.), but you can
 read or convert them. Their knowledge reaches the reader through wiki pages, not the raw

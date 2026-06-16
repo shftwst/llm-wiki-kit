@@ -35,14 +35,23 @@ Pick a different location with a third argument:
 my-kb/
 ├── CLAUDE.md   # the schema the LLM follows (page conventions + workflows)
 ├── README.md   # human intro + Obsidian setup
+├── inbox/      # shareable intake; sweep.sh moves drops into raw/ (raw/ stays private)
 ├── raw/        # sources: files, directories, or symlinks to living docs
 ├── wiki/       # the LLM-owned wiki (Obsidian vault root)
 │   ├── index.md
 │   └── overview.md
-├── scripts/    # mechanical ingest: scan.sh (detect) + ingest-new.sh (detect→ingest)
-├── .ingest/    # detection state: manifest.tsv (baseline) + pending.md (queue)
+├── scripts/    # sweep.sh (intake) + scan.sh (detect) + ingest-new.sh (sweep→detect→ingest)
+├── .ingest/    # detection state: manifest.tsv (baseline) + pending.md (queue) + cost.tsv
 └── log.md      # append-only ingest / re-ingest / query / lint record
 ```
+
+## Protected store + shared intake
+
+`raw/` is the protected source of truth — you never share it. `inbox/` is a shareable
+staging directory: contributors drop files there, and `scripts/sweep.sh` **moves** each
+into `raw/`. Because the sweep *moves* (not copies), a curated source leaves the shared
+area entirely — contributors can't reach, alter, or delete the real `raw/` files. Share
+only `inbox/` (e.g. a shared cloud folder); keep `raw/` and the KB root private.
 
 ## Mechanical ingest
 

@@ -10,6 +10,20 @@ script (no LLM, no cost); the actual ingest invokes Claude Code headlessly.
 > `find -L raw/<source> -type f | wc -l` is `0` for a source you know has files, the mount
 > isn't present — you're in the wrong place.
 
+## `sweep.sh` — move shared intake into the protected store
+
+`inbox/` is a shareable staging directory; `raw/` is the protected source store you never
+share. `sweep.sh` **moves** each item from `inbox/` into `raw/` and commits the move — so
+once curated, a source leaves the shared area and contributors can't alter or delete it.
+
+```sh
+./scripts/sweep.sh            # move inbox/* → raw/ and commit
+./scripts/sweep.sh --dry-run  # show what would move; move nothing
+```
+
+It runs automatically as the first step of `ingest-new.sh` (disable with `--no-sweep`).
+Name collisions never overwrite a `raw/` source — the incoming item is timestamp-suffixed.
+
 ## `scan.sh` — detect changes
 
 Walks `raw/`, fingerprints each source (following symlinks into living drives), and diffs

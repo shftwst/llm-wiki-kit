@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# sweep.sh — move staged sources from inbox/ into raw/.
+#
+# inbox/ is a SHAREABLE staging area: unprivileged contributors can drop files there.
+# This sweep MOVES each dropped item into raw/ (the protected store), so once curated a
+# source leaves the shared area entirely — contributors can't read, alter, or delete it.
+# Share only inbox/; never share raw/ or the KB root.
+#
+#   ./scripts/sweep.sh            move inbox/* into raw/ and commit (skips README.md)
+#   ./scripts/sweep.sh --dry-run  show what would move; move nothing
+#
+# On a name collision with an existing raw/ entry, the incoming item is renamed with a
+# timestamp suffix rather than overwriting — nothing in raw/ is ever clobbered.
+
+set -euo pipefail
+
+DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
+
+KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INBOX="$KB_DIR/inbox"
+RAW="$KB_DIR/raw"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+
+[ -d "$INBOX" ] || { echo "sweep: no inbox/ at $INBOX — nothing to do."; exit 0; }
+mkdir -p "$RAW"
+
+moved=0; names=()
+shopt -s nullglob
+for item in "$INBOX"/*; do
+  base="$(basename "$item")"
+  [ "$base" = "README.md" ] && continue
+  if [ -e "$RAW/$base" ]; then
+    # never clobber an existing raw source; suffix the incoming one
+    if [ "${base%.*}" = "$base" ]; then newname="${base}-$STAMP"
+    else newname="${base%.*}-$STAMP.${base##*.}"; fi
+  else
+    newname="$base"
+  fi
+  if [ "$DRY" -eq 1 ]; then
+    echo "sweep: [dry-run] would move inbox/$base → raw/$newname"
+  else
+    mv "$item" "$RAW/$newname"
+    echo "sweep: moved inbox/$base → raw/$newname"
+  fi
+  names+=("$newname"); moved=$((moved + 1))
+done
+shopt -u nullglob
+
+if [ "$moved" -eq 0 ]; then
+  echo "sweep: inbox empty — nothing to sweep."
+  exit 0
+fi
+if [ "$DRY" -eq 1 ]; then
+  echo "sweep: [dry-run] $moved item(s) would move. Nothing changed."
+  exit 0
+fi
+
+# Commit the custody move so it's captured independently of any later ingest.
+if command -v git >/dev/null 2>&1 && git -C "$KB_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  body="$(printf 'raw/%s\n' "${names[@]}")"
+  git -C "$KB_DIR" add -A -- raw inbox >/dev/null 2>&1 || true
+  git -C "$KB_DIR" commit -q -m "Sweep: $moved source(s) inbox → raw" -m "$body" \
+    >/dev/null 2>&1 || echo "sweep: (nothing committed)"
+fi
+
+echo "sweep: $moved item(s) moved into raw/."
