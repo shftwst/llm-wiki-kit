@@ -9,8 +9,9 @@
 # role's clearance are excluded; links to excluded pages and all ../raw/ citation links are
 # de-linked so the published site has no broken links and no paths into private sources.
 # index.md and overview.md are skipped (they catalog the whole graph); Quartz builds its own
-# navigation. Quartz runs only if QUARTZ_DIR points at a Quartz project; otherwise content is
-# staged and instructions are printed (the filtering itself needs no Node).
+# navigation. If Quartz is not present it is auto-installed once (git clone + npm i) when git
+# and npm are available; the install lives at QUARTZ_DIR (default .publish/quartz, gitignored
+# and disposable). Without git/npm the filtered content is staged (the filtering needs no Node).
 
 set -eu
 KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -62,11 +63,26 @@ printf '  staged → %s\n' "${OUT#"$KB_DIR"/}"
 [ "$MODE" = "stage" ] && exit 0
 
 QZ="${QUARTZ_DIR:-$KB_DIR/.publish/quartz}"
-if [ -d "$QZ" ] && [ -f "$QZ/package.json" ]; then
-  rm -rf "$QZ/content"; cp -R "$OUT" "$QZ/content"
-  ( cd "$QZ" && npx quartz build ) && printf 'publish[%s]: built → %s/public\n' "$ROLE" "$QZ"
-else
-  printf 'publish[%s]: Quartz not set up; content is staged.\n' "$ROLE"
-  printf '  one-time: git clone https://github.com/jackyzha0/quartz "%s" && (cd "%s" && npm i)\n' "$QZ" "$QZ"
-  printf '  then re-run, or: cp -R "%s"/* "%s"/content/ && (cd "%s" && npx quartz build)\n' "$OUT" "$QZ" "$QZ"
+
+# One-off Quartz install if missing. It is disposable (gitignored under .publish/); delete
+# the dir to force a fresh clone next run.
+if [ ! -f "$QZ/package.json" ]; then
+  if command -v git >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    printf 'publish[%s]: Quartz not found — one-off install into %s (clone + npm i, may take a minute) ...\n' "$ROLE" "${QZ#"$KB_DIR"/}"
+    rm -rf "$QZ"
+    if git clone --depth 1 https://github.com/jackyzha0/quartz "$QZ" >/dev/null 2>&1 && ( cd "$QZ" && npm i >/dev/null 2>&1 ); then
+      echo "  Quartz installed."
+    else
+      rm -rf "$QZ"   # leave nothing half-built; a re-run retries cleanly
+      printf 'publish[%s]: Quartz install failed (network or npm). Content is staged at %s.\n' "$ROLE" "${OUT#"$KB_DIR"/}" >&2
+      exit 0
+    fi
+  else
+    printf 'publish[%s]: git and npm are needed to auto-install Quartz. Content staged at %s.\n' "$ROLE" "${OUT#"$KB_DIR"/}" >&2
+    echo "  install Node and git, then re-run (or point QUARTZ_DIR at an existing Quartz)."
+    exit 0
+  fi
 fi
+
+rm -rf "$QZ/content"; cp -R "$OUT" "$QZ/content"
+( cd "$QZ" && npx quartz build ) && printf 'publish[%s]: built → %s/public\n' "$ROLE" "$QZ"

@@ -87,9 +87,10 @@ citation links are de-linked, so the site has no broken links and no paths into 
 sources. `index.md` and `overview.md` are skipped, since Quartz builds its own navigation.
 
 [Quartz](https://quartz.jzhao.xyz/) is an Obsidian-aware static site generator: it understands
-`[[wikilinks]]` and callouts, unlike plain GitHub. One-time setup: clone it, run `npm i`,
-point `QUARTZ_DIR` at it. Without Quartz, the filtered content is staged under
-`.publish/<role>/content/` with build instructions.
+`[[wikilinks]]` and callouts, unlike plain GitHub. If it is not present, `publish` installs it
+once automatically (git clone + `npm i`) into `QUARTZ_DIR` (default `.publish/quartz`, which is
+gitignored and disposable — delete it to force a fresh clone). Without git or npm, the filtered
+content is staged under `.publish/<role>/content/` with build instructions.
 
 ## `scan`: detect changes
 
