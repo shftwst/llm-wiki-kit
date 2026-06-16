@@ -93,6 +93,10 @@ One Quartz instance serves one role at a time, so `--all` writes each role to it
 output dir (`.publish/sites/<role>/`) you can open or host; preview one live with
 `publish <role> --serve`.
 
+The site title (Quartz's header and the landing page) is the KB's own title, read from the
+`wiki/overview.md` `title:`/H1 the ingest infers from the sources, falling back to the
+`CLAUDE.md` H1 then the folder name. Override per build with `KB_TITLE="My KB" ./scripts/publish team`.
+
 [Quartz](https://quartz.jzhao.xyz/) is an Obsidian-aware static site generator: it understands
 `[[wikilinks]]` and callouts, unlike plain GitHub. If it is not present, `publish` installs it
 once automatically (git clone + `npm i`) into `QUARTZ_DIR` (default `.publish/quartz`, which is

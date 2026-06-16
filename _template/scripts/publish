@@ -17,6 +17,10 @@
 # index.md and overview.md are skipped (they catalog the whole graph); a minimal role-view
 # index.md is generated so the site root resolves. Quartz builds its own navigation.
 #
+# The site title (Quartz's header, and the landing page) is the KB's own title, read from the
+# overview's `title:`/H1 (which the ingest infers from the sources), falling back to the
+# CLAUDE.md H1 then the folder name. Override per build with KB_TITLE=...
+#
 # One Quartz instance serves one role at a time, so --all writes each role to its own static
 # output dir (.publish/sites/<role>/) you can open directly or host; preview one live with
 # `publish <role> --serve`. If Quartz is not present it is auto-installed once (git clone +
@@ -43,9 +47,35 @@ list_roles() { grep -v '^#' "$ROLES" 2>/dev/null | cut -f1 | paste -sd' ' -; }
 all_roles()  { grep -v '^#' "$ROLES" 2>/dev/null | cut -f1; }
 fm_priv() { awk -F': ' '/^privilege:/{print $2; exit}' "$1"; }
 
+# kb_title: the human title of this KB, inferred by the ingest and read here (publish runs no
+# LLM). Resolution order: $KB_TITLE override, then the overview's frontmatter `title:`, then
+# its first H1, then the CLAUDE.md H1 (minus the schema suffix), then the folder name.
+kb_title() {
+  [ -n "${KB_TITLE:-}" ] && { printf '%s' "$KB_TITLE"; return; }
+  ov="$WIKI/overview.md"
+  if [ -f "$ov" ]; then
+    t="$(awk -F': ' '/^title:/{sub(/^title: */,"");print;exit}' "$ov")"
+    [ -n "$t" ] || t="$(grep -m1 '^# ' "$ov" | sed 's/^# *//')"
+    [ -n "$t" ] && { printf '%s' "$t"; return; }
+  fi
+  if [ -f "$KB_DIR/CLAUDE.md" ]; then
+    t="$(grep -m1 '^# ' "$KB_DIR/CLAUDE.md" | sed 's/^# *//; s/: Knowledge Base Schema.*//')"
+    [ -n "$t" ] && { printf '%s' "$t"; return; }
+  fi
+  basename "$KB_DIR"
+}
+
+# quartz_set_title: patch the cloned Quartz's site title so the header stops reading the stock
+# "Quartz" default. Strips quotes/backslashes so the title can't break the TS string literal.
+quartz_set_title() {
+  cfg="$QZ/quartz.config.ts"; [ -f "$cfg" ] || return 0
+  T="$(printf '%s' "$1" | tr -d '"\\')" perl -0pi -e 's/pageTitle:\s*"(?:[^"\\]|\\.)*"/pageTitle: "$ENV{T}"/' "$cfg"
+}
+
 [ -f "$ROLES" ] || { echo "publish: no .publish/roles.tsv" >&2; exit 1; }
 [ "$ALL" = 1 ] || [ -n "$ROLE" ] || { echo "usage: publish <role> [--dry-run|--serve] | publish --all [--dry-run]   (roles: $(list_roles))"; exit 1; }
 [ -d "$WIKI" ] || { echo "publish: no wiki/ yet."; exit 0; }
+TITLE="$(kb_title)"
 
 # stage_role <role> <content-dir>: filter the role's cleared pages into <content-dir>, de-link
 # anything outside the set, and generate a landing index.md. Prints an include/exclude summary.
@@ -87,10 +117,9 @@ stage_role() {
 
   # Quartz serves content/index.md at the site root; the wiki's index/overview were skipped,
   # so synthesize a minimal landing page for this role view (else "/" 404s).
-  kbname="$(basename "$KB_DIR")"
   {
-    printf -- '---\ntitle: %s (%s view)\n---\n\n' "$kbname" "$role"
-    printf '# %s\n\nThe **%s** view of this knowledge base. Browse with the explorer or search, or start from the pages below.\n\n## Pages\n\n' "$kbname" "$role"
+    printf -- '---\ntitle: %s\n---\n\n' "$TITLE"
+    printf '# %s\n\nThe **%s** view of this knowledge base. Browse with the explorer or search, or start from the pages below.\n\n## Pages\n\n' "$TITLE" "$role"
     while IFS= read -r s; do [ -n "$s" ] && printf -- '- [[%s]]\n' "$s"; done < "$inc_file"
   } > "$out/index.md"
 
@@ -132,6 +161,7 @@ if [ "$ALL" = 0 ]; then
   stage_role "$ROLE" "$OUT" || exit 1
   [ "$MODE" = dry ] && exit 0
   ensure_quartz || { printf 'publish[%s]: content staged at %s; install Node+git (or set QUARTZ_DIR) and re-run.\n' "$ROLE" "${OUT#"$KB_DIR"/}" >&2; exit 0; }
+  quartz_set_title "$TITLE"
   rm -rf "$QZ/content"; cp -R "$OUT" "$QZ/content"
   if [ "$MODE" = serve ]; then
     printf 'publish[%s]: serving live preview at http://localhost:8080 (Ctrl-C to stop) ...\n' "$ROLE"
@@ -143,6 +173,7 @@ else
   # --all: stage + build every role into its own static output dir.
   QZOK=1
   [ "$MODE" = dry ] || ensure_quartz || QZOK=0
+  [ "$MODE" != dry ] && [ "$QZOK" = 1 ] && quartz_set_title "$TITLE"
   built=""
   for role in $(all_roles); do
     [ -n "$role" ] || continue

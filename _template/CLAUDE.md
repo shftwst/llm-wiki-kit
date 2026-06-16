@@ -170,7 +170,10 @@ sensitive. Default to `default` only when nothing sensitive is involved.
 - **comparison / analysis**: durable answers worth keeping; file query results back
   here. Lives in `wiki/analysis/`. Carries `derived_from` + `as_of` frontmatter so
   staleness is mechanically detectable (see Lint).
-- **overview**: `wiki/overview.md`, the evolving synthesis. **index**, `wiki/index.md`.
+- **overview**: `wiki/overview.md`, the evolving synthesis. Its H1 (or a `title:` in
+  frontmatter) is the KB's human title: set it to a name that reflects what the sources are
+  about, not the folder name. `scripts/publish` reads it as the published site title.
+  **index**, `wiki/index.md`.
 
 Create subdirectories under `wiki/` (`sources/`, `entities/`, `concepts/`, `analysis/`)
 as content arrives. Don't pre-create empty ones, **let structure emerge from the
