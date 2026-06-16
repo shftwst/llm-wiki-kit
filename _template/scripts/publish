@@ -87,6 +87,13 @@ if [ ! -f "$QZ/package.json" ]; then
   fi
 fi
 
+# Quartz v5+ generates its plugin barrel (.quartz/) via `plugin install`; a fresh clone
+# needs it, else the build fails with: Could not resolve "../../.quartz/plugins".
+if [ ! -d "$QZ/.quartz" ]; then
+  printf 'publish[%s]: installing Quartz plugins (one-off) ...\n' "$ROLE"
+  ( cd "$QZ" && npx quartz plugin install ) || { echo "publish: 'npx quartz plugin install' failed." >&2; exit 1; }
+fi
+
 rm -rf "$QZ/content"; cp -R "$OUT" "$QZ/content"
 if [ "$MODE" = "serve" ]; then
   printf 'publish[%s]: serving live preview at http://localhost:8080 (Ctrl-C to stop) ...\n' "$ROLE"
