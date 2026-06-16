@@ -17,6 +17,7 @@
 #
 # Set CLAUDE_BIN / CLAUDE_MODEL to override the binary / model (default claude-opus-4-8).
 # Cost per run is appended to .ingest/cost.tsv when jq is available.
+# --watch shows full lines by default; set WATCH_MAXLEN=N to cap each line at N characters.
 
 set -euo pipefail
 
@@ -51,7 +52,8 @@ if [ "$AUTO" -eq 1 ]; then PERM=(--permission-mode bypassPermissions); else PERM
 
 HAVE_JQ=0; command -v jq >/dev/null 2>&1 && HAVE_JQ=1
 JQ_FILTER='
-def short(s): (s // "" | tostring | if length>80 then .[0:80]+"…" else . end);
+def short(s): (s // "" | tostring) as $t | (env.WATCH_MAXLEN // "0" | tonumber) as $m
+  | if $m > 0 and ($t|length) > $m then $t[0:$m] + "…" else $t end;
 if .type=="system" and .subtype=="init" then "▶ start (model \(.model // "?"))"
 elif .type=="assistant" then
   ( .message.content[]? |
