@@ -27,9 +27,16 @@ living symlink targets in one pass.
 
 ```sh
 ./scripts/ingest-new.sh            # supervised: scan, then ingest pending via Claude Code
+./scripts/ingest-new.sh --watch    # supervised + live play-by-play of each step
 ./scripts/ingest-new.sh --dry-run  # show what would run; no LLM, no changes
 ./scripts/ingest-new.sh --auto     # unattended permissions — for cron / launchd
 ```
+
+Flags combine (e.g. `--watch --auto`). Without `--watch` you get the agent's final summary
+when it finishes; **`log.md` is the durable record either way** (what was ingested + every
+`[!review]` flag). `--watch` streams each step live (read/write/etc.) — it uses
+`--output-format stream-json` rendered readable through `jq`; install `jq` for clean output,
+or you'll see raw JSON. `--auto` stays quiet and logs to `.ingest/auto.log`.
 
 If `claude` isn't on your PATH: `CLAUDE_BIN=/full/path/to/claude ./scripts/ingest-new.sh`.
 
