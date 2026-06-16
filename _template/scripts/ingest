@@ -28,7 +28,7 @@ SWEEP="$KB_DIR/scripts/sweep"
 PENDING="$KB_DIR/.ingest/pending.md"
 COVERAGE="$KB_DIR/.ingest/coverage.tsv"
 COST_TSV="$KB_DIR/.ingest/cost.tsv"
-COST_HEADER=$'# cost.tsv — per-run ingest cost ledger (appended by scripts/ingest).\n# Columns: date\tcost_usd\tturns\tduration_ms\tsources\tmode'
+COST_HEADER=$'# cost.tsv — per-run ingest cost ledger (appended by scripts/ingest).\n# Columns: date\tcost_usd\tturns\tduration_ms\tsources\tmode\tmodel'
 
 DRY_RUN=0; AUTO=0; WATCH=0; SWEEP_ENABLED=1; MODE=read; BUDGET=""; FRESH=0
 while [ $# -gt 0 ]; do
@@ -155,11 +155,14 @@ if [ "$HAVE_JQ" -eq 1 ]; then
   COST="$(jq -r 'select(.type=="result") | .total_cost_usd // empty' "$STREAM_TMP" 2>/dev/null | tail -1 || true)"
   TURNS="$(jq -r 'select(.type=="result") | .num_turns // empty'      "$STREAM_TMP" 2>/dev/null | tail -1 || true)"
   DUR="$(jq -r 'select(.type=="result") | .duration_ms // empty'      "$STREAM_TMP" 2>/dev/null | tail -1 || true)"
+  # the model actually used (from the init event), falling back to the requested one
+  MODEL_USED="$(jq -r 'select(.type=="system" and .subtype=="init") | .model // empty' "$STREAM_TMP" 2>/dev/null | head -1 || true)"
+  [ -z "$MODEL_USED" ] && MODEL_USED="$MODEL"
   if [ -n "$COST" ]; then
     [ -f "$COST_TSV" ] || printf '%s\n' "$COST_HEADER" > "$COST_TSV"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%F)" "$COST" "${TURNS:-}" "${DUR:-}" "$SOURCES_N" "$MODE" >> "$COST_TSV"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%F)" "$COST" "${TURNS:-}" "${DUR:-}" "$SOURCES_N" "$MODE" "$MODEL_USED" >> "$COST_TSV"
     TOTAL="$(awk -F'\t' '$1 !~ /^#/ {s+=$2} END{printf "%.4f", s+0}' "$COST_TSV")"
-    printf 'ingest: cost $%s (%s turns, %s pass) — cumulative $%s\n' "$COST" "${TURNS:-?}" "$MODE" "$TOTAL"
+    printf 'ingest: cost $%s (%s turns, %s pass, %s) — cumulative $%s\n' "$COST" "${TURNS:-?}" "$MODE" "$MODEL_USED" "$TOTAL"
   else
     echo "ingest: no cost field in result — cost ledger not updated." >&2
   fi

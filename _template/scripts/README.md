@@ -80,8 +80,9 @@ If `claude` isn't on your PATH: `CLAUDE_BIN=/full/path/to/claude ./scripts/inges
 ### Cost & model
 
 When `jq` is installed, each run appends a row to `.ingest/cost.tsv` —
-`date · cost_usd · turns · duration_ms · sources · mode` — and prints the run cost plus a
-running cumulative total. The ledger is committed, so cost history travels with the KB:
+`date · cost_usd · turns · duration_ms · sources · mode · model` (the model actually used,
+read from the run's init event) — and prints the run cost plus a running cumulative total.
+The ledger is committed, so cost history travels with the KB:
 
 ```sh
 awk -F'\t' '$1!~/^#/{s+=$2} END{printf "total $%.4f\n", s}' .ingest/cost.tsv
