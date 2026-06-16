@@ -88,10 +88,12 @@ files.
   updated: YYYY-MM-DD
   source_path: raw/<path>              # path inside raw/
   source_kind: file | directory | symlink-living
-  last_ingested: YYYY-MM-DD
-  fingerprint: <mtime or short hash>   # cheap drift signal; optional
+  last_ingested: YYYY-MM-DD            # human-facing provenance
   ---
   ```
+
+  Drift fingerprints live in `.ingest/manifest.tsv` (owned by `scripts/scan.sh`), not on
+  the page — one fact, one owner.
 
 - **Derived pages** (comparisons, analyses — answers synthesized from *other* pages)
   carry dependency frontmatter so their staleness can be detected mechanically:
@@ -162,8 +164,9 @@ it grep-parseable: `grep "^## \[" log.md | tail -5`.
    each affected derived page; if you can't fully recompute it now, flag it inline and
    leave its `as_of` unchanged so Lint keeps surfacing it. Never leave a derived page
    silently inconsistent with its sources.
-4. Bump `last_ingested` and `fingerprint` on the source page; bump `updated` on every
-   page you touch, and `as_of` on any derived page you recompute.
+4. Bump `last_ingested` and `updated` on the source page; bump `updated` on every other
+   page you touch, and `as_of` on any derived page you recompute. (The detection baseline
+   in `.ingest/manifest.tsv` is advanced by `scripts/ingest-new.sh`, never by hand.)
 5. Append a `reingest` entry to `log.md` noting what changed and which derived pages it
    rippled into.
 
@@ -182,10 +185,44 @@ Scan for: contradictions between pages; stale claims newer sources superseded;
 **stale derived pages — for any page with `derived_from`, if any listed page's `updated`
 is later than this page's `as_of`, flag it stale (a pure date comparison, no re-reading
 needed)**; orphan pages (no inbound links); concepts mentioned but lacking a page; missing
-cross-references; **living sources (`source_kind: symlink-living`) whose target changed
-since `last_ingested`, or that are overdue — surface as re-ingest candidates**; data gaps
-a web search could fill. Report findings and suggested next questions; fix with the human's
+cross-references; **source drift — run `scripts/scan.sh`, which fingerprints every source
+(files, directories, and living symlink targets) and lists anything changed since it was
+last ingested; surface those as re-ingest candidates**; data gaps a web search could fill. Report findings and suggested next questions; fix with the human's
 go-ahead. Append a `lint` entry.
+
+## Mechanical detection & ingest
+
+Detection of new/changed sources is automated so it never depends on someone remembering
+to ask. The machinery lives in `scripts/` and `.ingest/`:
+
+- **`scripts/scan.sh`** — walks `raw/`, fingerprints each source (following symlinks), and
+  diffs against `.ingest/manifest.tsv` to classify **new / changed / removed**. Writes the
+  queue to `.ingest/pending.md`; exits `10` if anything is pending, `0` if clean. Pure
+  script, no LLM, no cost. It is also the drift check the Lint workflow calls.
+- **`.ingest/manifest.tsv`** — the authoritative detection baseline: one row per ingested
+  source (`source_path · kind · fingerprint · last_ingested`). **Never edit it by hand,
+  and neither do you** — `scripts/ingest-new.sh` advances it after a successful ingest.
+- **`.ingest/pending.md`** — the regenerated queue of what scan found. Derived; safe to
+  overwrite.
+- **`scripts/ingest-new.sh`** — runs `scan.sh`, and if anything is pending, ingests it,
+  then advances the manifest and commits. Run it yourself, or schedule it (see
+  `scripts/README.md`).
+
+These three tenses never overlap: `log.md` records the **past** (narrative), `manifest.tsv`
+holds the **present** (current ingested version of each source), `pending.md` lists the
+**future** (what still needs ingesting).
+
+### Unattended ingest
+
+When `ingest-new.sh` runs headless (cron / launchd / `--auto`), there is no human to
+discuss takeaways with. In that mode:
+
+- Skip the "discuss with the human" step of Ingest.
+- Mark any new claim you're unsure about, or anything that contradicts an existing page,
+  with a `> [!review]` callout on the affected page instead of resolving it silently.
+- Summarize what you ingested and list every `[!review]` you raised in the `log.md` entry,
+  so the human can review on their next visit.
+- Don't delete or rewrite existing synthesis on low confidence — append and flag instead.
 
 ## Principles
 

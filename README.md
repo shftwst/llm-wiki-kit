@@ -39,8 +39,19 @@ my-kb/
 ├── wiki/       # the LLM-owned wiki (Obsidian vault root)
 │   ├── index.md
 │   └── overview.md
+├── scripts/    # mechanical ingest: scan.sh (detect) + ingest-new.sh (detect→ingest)
+├── .ingest/    # detection state: manifest.tsv (baseline) + pending.md (queue)
 └── log.md      # append-only ingest / re-ingest / query / lint record
 ```
+
+## Mechanical ingest
+
+Ingest never has to wait for you to remember it. `scripts/scan.sh` fingerprints every
+source — including the contents behind a living symlink — and diffs against a committed
+baseline (`.ingest/manifest.tsv`) to find what's new, changed, or removed. It's a pure
+script: no LLM, no cost. `scripts/ingest-new.sh` runs the scan and, if anything changed,
+ingests it via headless Claude Code, then advances the baseline and commits. Run it by
+hand, or schedule it (`--auto`) with the cron/launchd snippets in `scripts/README.md`.
 
 ## The pattern in one paragraph
 
