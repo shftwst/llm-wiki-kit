@@ -149,8 +149,9 @@ from, and that document should be openable. So:
   draws on, as links relative to the KB through the `raw/` symlink:
   `[<path under the source>](../raw/<source>/<path>)`. The visible text is the path (always
   precise and copy-pasteable); the link opens the original where the tool supports it.
-- **Tag each source `read in full` or `not read`** (folder present / referenced by name but
-  not opened). This keeps coverage honest and surfaces gaps for re-ingest.
+- **Authoritative read-state lives in `.ingest/coverage.tsv`** — the deepening frontier you
+  own — not parsed from wiki pages. A `## Sources` entry may note `read in full` / `not read`
+  for the reader, but `coverage.tsv` is the source of truth; keep it current as you read.
 - **Cite inline** where a specific figure or claim comes from a specific document, so a
   reader can jump from a claim to its origin.
 - Paths are relative to the KB so they survive a move; only the `raw/` symlink target is
@@ -206,6 +207,24 @@ failure — read the documents and extract what they actually say.
 **Never assert a fact you only inferred from a folder or file name.** Read the document,
 or cite it as `not read`. Inference-from-structure is how confidently-wrong pages happen.
 
+### Progressive deepening (passes)
+
+Ingestion is an **anytime, iterative-deepening** loop, not one giant read. Stop after any
+pass and resume later; the wiki is usable throughout. The frontier is `.ingest/coverage.tsv`
+(**you own it**; the wrapper owns `manifest.tsv`).
+
+- **Pass 0 — map** (`ingest-new.sh --map`): cheap. Build the structural skeleton and
+  enumerate the corpus into `coverage.tsv` with a value tier per item — **owner priorities
+  from `notes.md` first, then a type heuristic** (financial / legal / contractual / policy =
+  high; receipts / incidental = low). Nothing read in full yet; everything `unread`.
+- **Pass 1 — read** (default): read the **high-value** unread documents in full, extract
+  facts, upgrade pages from inferred to cited, derive `analysis/` pages. Mark them `read`.
+- **Passes 2…n — deepen** (`--deepen`, repeatable): read the next highest-value `unread`
+  items and upgrade. Optional `--budget $N` caps a pass; the next run resumes the frontier.
+
+Always pick the next work by value order, mark items `read` as you go, and converge toward
+fully-read. Read state is memoized in `coverage.tsv`, so no document is read twice.
+
 ### Re-ingest (a source changed)
 
 1. Re-read the source. Compare against its existing source page.
@@ -256,6 +275,9 @@ to ask. The machinery lives in `scripts/` and `.ingest/`:
   and neither do you** — `scripts/ingest-new.sh` advances it after a successful ingest.
 - **`.ingest/pending.md`** — the regenerated queue of what scan found. Derived; safe to
   overwrite.
+- **`.ingest/coverage.tsv`** — the read frontier for progressive deepening: each document
+  with a value tier and read status. **You own this one** — update it as you read. See
+  *Progressive deepening*.
 - **`scripts/ingest-new.sh`** — runs `scan.sh`, and if anything is pending, ingests it,
   then advances the manifest and commits. Run it yourself, or schedule it (see
   `scripts/README.md`).

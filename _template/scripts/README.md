@@ -40,11 +40,23 @@ living symlink targets in one pass.
 ## `ingest-new.sh` — detect + ingest
 
 ```sh
-./scripts/ingest-new.sh            # supervised: scan, then ingest pending via Claude Code
-./scripts/ingest-new.sh --watch    # supervised + live play-by-play of each step
+./scripts/ingest-new.sh            # Pass 1 "read": read HIGH-value docs in full
+./scripts/ingest-new.sh --map      # Pass 0 "map": cheap skeleton + build coverage frontier
+./scripts/ingest-new.sh --deepen   # Pass 2+: read the next highest-value unread docs
+./scripts/ingest-new.sh --budget 5 # soft per-pass spend target (USD)
+./scripts/ingest-new.sh --watch    # live play-by-play of each step
 ./scripts/ingest-new.sh --dry-run  # show what would run; no LLM, no changes
 ./scripts/ingest-new.sh --auto     # unattended permissions — for cron / launchd
 ```
+
+### Progressive deepening
+
+Ingestion is an **anytime, iterative-deepening** loop. Run `--map` once for a cheap
+skeleton that enumerates the corpus into `.ingest/coverage.tsv` (the read frontier, ordered
+by value: `notes.md` priorities, then a document-type heuristic). Then a default **read**
+pass reads the high-value docs; repeat `--deepen` to read progressively more, value-first.
+Stop after any pass — the wiki is usable throughout and the next run resumes the frontier.
+`--budget $N` caps a pass; watch actual spend in `.ingest/cost.tsv`.
 
 Flags combine (e.g. `--watch --auto`). Without `--watch` you get the agent's final summary
 when it finishes; **`log.md` is the durable record either way** (what was ingested + every

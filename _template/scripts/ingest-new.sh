@@ -1,51 +1,55 @@
 #!/usr/bin/env bash
-# ingest-new.sh — detect new/changed sources and ingest them via headless Claude Code.
+# ingest-new.sh — ingest sources via headless Claude Code, with progressive-deepening
+# passes (iterative deepening / anytime). Stop after any pass; resume later.
 #
-#   ./scripts/ingest-new.sh             supervised: sweep inbox→raw, scan, then ingest pending
-#   ./scripts/ingest-new.sh --watch     supervised + live play-by-play of each step
-#   ./scripts/ingest-new.sh --dry-run   detect only; print what would run (no LLM, no cost)
-#   ./scripts/ingest-new.sh --auto      unattended permissions (for cron / launchd)
-#   ./scripts/ingest-new.sh --no-sweep  skip the inbox→raw sweep; ingest existing raw/ only
+#   ./scripts/ingest-new.sh             Pass 1 "read": sweep, scan, read HIGH-value docs
+#   ./scripts/ingest-new.sh --map       Pass 0 "map": cheap skeleton + build coverage frontier
+#   ./scripts/ingest-new.sh --deepen    Pass 2+: read the next highest-value unread docs
+#   ./scripts/ingest-new.sh --budget N  soft per-pass spend target in USD (e.g. --budget 5)
+#   ./scripts/ingest-new.sh --watch     live play-by-play of each step
+#   ./scripts/ingest-new.sh --dry-run   show what would run (no LLM, no cost)
+#   ./scripts/ingest-new.sh --auto      unattended permissions (cron / launchd)
+#   ./scripts/ingest-new.sh --no-sweep  skip the inbox→raw sweep
 #
-# Flags combine (e.g. --watch --auto). Set CLAUDE_BIN=/path/to/claude if not on PATH.
+# The passes form an anytime loop over .ingest/coverage.tsv (the read frontier, agent-owned):
+# map → read → deepen → deepen … value-ordered (notes.md priorities, then type heuristic),
+# with read state memoized so no document is read twice. Flags combine.
 #
-# Cost: when `jq` is available, each run's cost is appended to .ingest/cost.tsv
-# (date, cost_usd, turns, duration_ms, sources, mode) and a cumulative total is printed.
-#
-# Model: defaults to claude-opus-4-8; override with CLAUDE_MODEL=<id> (e.g. claude-sonnet-4-6).
+# Set CLAUDE_BIN / CLAUDE_MODEL to override the binary / model (default claude-opus-4-8).
+# Cost per run is appended to .ingest/cost.tsv when jq is available.
 
 set -euo pipefail
 
 KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCAN="$KB_DIR/scripts/scan.sh"
+SWEEP="$KB_DIR/scripts/sweep.sh"
 PENDING="$KB_DIR/.ingest/pending.md"
+COVERAGE="$KB_DIR/.ingest/coverage.tsv"
 COST_TSV="$KB_DIR/.ingest/cost.tsv"
 COST_HEADER=$'# cost.tsv — per-run ingest cost ledger (appended by scripts/ingest-new.sh).\n# Columns: date\tcost_usd\tturns\tduration_ms\tsources\tmode'
 
-DRY_RUN=0; AUTO=0; WATCH=0; SWEEP_ENABLED=1
-for a in "${@:-}"; do
-  case "$a" in
-    "") ;;
+DRY_RUN=0; AUTO=0; WATCH=0; SWEEP_ENABLED=1; MODE=read; BUDGET=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --dry-run)  DRY_RUN=1;;
     --auto)     AUTO=1;;
     --watch)    WATCH=1;;
     --no-sweep) SWEEP_ENABLED=0;;
-    *) echo "ingest-new: unknown arg: $a" >&2; exit 1;;
+    --map)      [ "$MODE" = "deepen" ] && { echo "ingest-new: --map and --deepen are mutually exclusive" >&2; exit 1; }; MODE=map;;
+    --deepen)   [ "$MODE" = "map" ]    && { echo "ingest-new: --map and --deepen are mutually exclusive" >&2; exit 1; }; MODE=deepen;;
+    --budget)   shift; BUDGET="${1:-}";;
+    --budget=*) BUDGET="${1#--budget=}";;
+    "") ;;
+    *) echo "ingest-new: unknown arg: $1" >&2; exit 1;;
   esac
+  shift
 done
-SWEEP="$KB_DIR/scripts/sweep.sh"
 
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
-MODEL="${CLAUDE_MODEL:-claude-opus-4-8}"   # ingest model; override: CLAUDE_MODEL=claude-sonnet-4-6
-if [ "$AUTO" -eq 1 ]; then
-  PERM=(--permission-mode bypassPermissions)   # unattended: no prompts
-else
-  PERM=(--permission-mode acceptEdits)         # supervised: auto-accept edits
-fi
+MODEL="${CLAUDE_MODEL:-claude-opus-4-8}"
+if [ "$AUTO" -eq 1 ]; then PERM=(--permission-mode bypassPermissions); else PERM=(--permission-mode acceptEdits); fi
 
 HAVE_JQ=0; command -v jq >/dev/null 2>&1 && HAVE_JQ=1
-
-# readable render of the JSON event stream (used for --watch)
 JQ_FILTER='
 def short(s): (s // "" | tostring | if length>80 then .[0:80]+"…" else . end);
 if .type=="system" and .subtype=="init" then "▶ start (model \(.model // "?"))"
@@ -57,47 +61,55 @@ elif .type=="assistant" then
 elif .type=="result" then "✓ \(.subtype // "done")\(if .total_cost_usd then "  ($\(.total_cost_usd))" else "" end)"
 else empty end
 '
+_render() { if [ "$WATCH" -eq 1 ] && command -v jq >/dev/null 2>&1; then jq -r "$JQ_FILTER"; else cat; fi; }
 
-PROMPT='Mechanical ingest run. Read notes.md (if present) and this KB'"'"'s CLAUDE.md, then
-.ingest/pending.md. For every source under New and Changed, run the Ingest or Re-ingest
-workflow; for Removed, reconcile the affected wiki pages.
+BUDGET_CLAUSE=""
+[ -n "$BUDGET" ] && BUDGET_CLAUSE=" Spend roughly \$$BUDGET this pass, then stop; the next run resumes the frontier."
 
-Go for DEPTH: read the substantive documents in FULL and extract what they say — do not
-summarize from folder/file names. Produce analysis/ pages that synthesize across documents
-(financials by period, subscriptions, assets, rates). Give every real entity its own page,
-including service providers. Cite sources on every page (a "## Sources" section, paths as
-../raw/... links, each tagged "read in full" or "not read"), and NEVER assert a fact you
-only inferred from structure.
+COMMON_TAIL='Skip the discussion step; treat notes.md as authoritative ("per owner"); mark uncertainty or contradictions with a "> [!review]" callout; and in the log.md entry note what you read in full vs deferred plus every [!review] raised. You OWN .ingest/coverage.tsv (the read frontier) and must keep it current; do NOT edit .ingest/manifest.tsv and do NOT git commit — the wrapper advances the manifest and commits.'
 
-This is an UNATTENDED ingest: skip the discussion step; treat notes.md as authoritative
-("per owner"); mark anything uncertain or contradictory with a "> [!review]" callout; and
-in the log.md entry summarize what you read in full vs deferred plus every [!review] raised.
-Do NOT edit .ingest/manifest.tsv and do NOT git commit — the wrapper advances and commits.'
-
-# --- sweep inbox → raw (the protected store) ---------------------------------
-if [ "$SWEEP_ENABLED" -eq 1 ] && [ -x "$SWEEP" ]; then
-  if [ "$DRY_RUN" -eq 1 ]; then
-    bash "$SWEEP" --dry-run || true
-  else
-    bash "$SWEEP" || echo "ingest-new: sweep failed — continuing with existing raw/." >&2
-  fi
-fi
-
-# --- detect ------------------------------------------------------------------
-set +e; bash "$SCAN"; code=$?; set -e
-case "$code" in
-  0)  echo "ingest-new: nothing pending — done."; exit 0;;
-  10) ;;  # pending work exists
-  *)  echo "ingest-new: scan failed (exit $code)" >&2; exit "$code";;
+case "$MODE" in
+  map)
+    PROMPT="Mechanical ingest — MAP pass (Pass 0, deliberately shallow and cheap). Read notes.md and this KB's CLAUDE.md, then .ingest/pending.md. For each New/Changed source, walk it and build the STRUCTURAL SKELETON only: a source page plus entity/concept stubs for what is visibly present, citing sources as 'not read'. Then ENUMERATE the corpus into .ingest/coverage.tsv — one row per document or tight group, columns item<TAB>value<TAB>status<TAB>pass<TAB>last_read — where value is high|med|low (owner priorities in notes.md first, then a type heuristic: financial/legal/contractual/policy = high, receipts/incidental = low) and status=unread. Do NOT read documents in full this pass. $COMMON_TAIL"
+    ;;
+  read)
+    PROMPT="Mechanical ingest — READ pass (Pass 1, depth). Read notes.md and this KB's CLAUDE.md, then .ingest/pending.md and .ingest/coverage.tsv. Follow the Ingest/Re-ingest workflow with DEPTH: read the HIGH-value documents in full (per coverage.tsv + owner priorities), extract their facts, upgrade the affected pages from inferred to cited, derive analysis/ pages (financials, subscriptions, assets, rates), and give every real entity its own page. Mark each document you read as status=read (with pass and last_read) in coverage.tsv. Cite sources on every page and never assert a fact inferred only from structure.$BUDGET_CLAUSE $COMMON_TAIL"
+    ;;
+  deepen)
+    PROMPT="Mechanical ingest — DEEPEN pass (anytime iterative deepening). Read notes.md, this KB's CLAUDE.md, and .ingest/coverage.tsv. Pick the highest-value 'unread' items (owner priorities first, then type heuristic), read them IN FULL, upgrade the affected pages and analysis/ pages, and mark them status=read (pass, last_read) in coverage.tsv. Do not re-read items already 'read'. Cite sources on every page.$BUDGET_CLAUSE $COMMON_TAIL"
+    ;;
 esac
 
+# --- sweep inbox → raw -------------------------------------------------------
+if [ "$SWEEP_ENABLED" -eq 1 ] && [ -x "$SWEEP" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then bash "$SWEEP" --dry-run || true
+  else bash "$SWEEP" || echo "ingest-new: sweep failed — continuing with existing raw/." >&2; fi
+fi
+
+# --- gate: deepen is driven by the coverage frontier; map/read by scan -------
+if [ "$MODE" = "deepen" ]; then
+  # an "unread" item = a non-comment row whose status column (3) is exactly unread
+  if [ ! -f "$COVERAGE" ] || ! awk -F'\t' '$1 !~ /^#/ && $3 == "unread" {f=1} END{exit f?0:1}' "$COVERAGE" 2>/dev/null; then
+    echo "ingest-new: nothing left to deepen — no 'unread' items in coverage.tsv. Run --map (or a read pass) first if coverage is empty."
+    exit 0
+  fi
+  bash "$SCAN" >/dev/null 2>&1 || true   # refresh state; don't gate on it
+else
+  set +e; bash "$SCAN"; code=$?; set -e
+  case "$code" in
+    0)  echo "ingest-new: nothing pending — done."; exit 0;;
+    10) ;;  # pending work exists
+    *)  echo "ingest-new: scan failed (exit $code)" >&2; exit "$code";;
+  esac
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "ingest-new: [dry-run] changes pending. Would run, in $KB_DIR:"
+  echo "ingest-new: [dry-run] mode=$MODE${BUDGET:+ budget=\$$BUDGET}. Would run, in $KB_DIR:"
   if [ "$HAVE_JQ" -eq 1 ]; then
-    echo "  $CLAUDE_BIN -p ${PERM[*]} --model $MODEL --output-format stream-json --verbose \"<ingest prompt>\""
+    echo "  $CLAUDE_BIN -p ${PERM[*]} --model $MODEL --output-format stream-json --verbose \"<$MODE prompt>\""
     echo "  → ${WATCH:+live steps, }final summary, and append cost to .ingest/cost.tsv"
   else
-    echo "  $CLAUDE_BIN -p ${PERM[*]} --model $MODEL \"<ingest prompt>\"   (jq absent: plain text, no cost ledger)"
+    echo "  $CLAUDE_BIN -p ${PERM[*]} --model $MODEL \"<$MODE prompt>\"   (jq absent: plain text, no cost ledger)"
   fi
   echo "  then: scripts/scan.sh --accept && git add -A && git commit"
   echo "ingest-new: [dry-run] no changes made."
@@ -106,12 +118,10 @@ fi
 
 command -v "$CLAUDE_BIN" >/dev/null 2>&1 \
   || { echo "ingest-new: '$CLAUDE_BIN' not found. Set CLAUDE_BIN=/path/to/claude." >&2; exit 127; }
-if [ "$HAVE_JQ" -eq 0 ]; then
-  echo "ingest-new: jq not found — no live steps or cost ledger (install jq to enable)." >&2
-fi
+[ "$HAVE_JQ" -eq 0 ] && echo "ingest-new: jq not found — no live steps or cost ledger (install jq to enable)." >&2
 
 SOURCES_N="$(grep -cE '^- ' "$PENDING" 2>/dev/null || true)"
-echo "ingest-new: ingesting $SOURCES_N pending source(s) via $CLAUDE_BIN ..."
+echo "ingest-new: $MODE pass${BUDGET:+ (budget \$$BUDGET)} via $CLAUDE_BIN ..."
 
 rc=0
 if [ "$HAVE_JQ" -eq 1 ]; then
@@ -127,17 +137,14 @@ if [ "$HAVE_JQ" -eq 1 ]; then
     jq -r 'select(.type=="result") | .result // empty' "$STREAM_TMP" 2>/dev/null || true
   fi
   set -e
-
-  # --- record cost (the run incurs cost whether or not it fully succeeded) ----
   COST="$(jq -r 'select(.type=="result") | .total_cost_usd // empty' "$STREAM_TMP" 2>/dev/null | tail -1 || true)"
   TURNS="$(jq -r 'select(.type=="result") | .num_turns // empty'      "$STREAM_TMP" 2>/dev/null | tail -1 || true)"
   DUR="$(jq -r 'select(.type=="result") | .duration_ms // empty'      "$STREAM_TMP" 2>/dev/null | tail -1 || true)"
   if [ -n "$COST" ]; then
     [ -f "$COST_TSV" ] || printf '%s\n' "$COST_HEADER" > "$COST_TSV"
-    mode="supervised"; [ "$AUTO" -eq 1 ] && mode="auto"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%F)" "$COST" "${TURNS:-}" "${DUR:-}" "$SOURCES_N" "$mode" >> "$COST_TSV"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date +%F)" "$COST" "${TURNS:-}" "${DUR:-}" "$SOURCES_N" "$MODE" >> "$COST_TSV"
     TOTAL="$(awk -F'\t' '$1 !~ /^#/ {s+=$2} END{printf "%.4f", s+0}' "$COST_TSV")"
-    printf 'ingest-new: cost $%s (%s turns, %s source(s)) — cumulative $%s\n' "$COST" "${TURNS:-?}" "$SOURCES_N" "$TOTAL"
+    printf 'ingest-new: cost $%s (%s turns, %s pass) — cumulative $%s\n' "$COST" "${TURNS:-?}" "$MODE" "$TOTAL"
   else
     echo "ingest-new: no cost field in result — cost ledger not updated." >&2
   fi
@@ -147,22 +154,20 @@ else
 fi
 
 if [ "$rc" -ne 0 ]; then
-  echo "ingest-new: ingest run failed (exit $rc) — manifest NOT advanced, no commit." >&2
+  echo "ingest-new: $MODE pass failed (exit $rc) — manifest NOT advanced, no commit." >&2
   exit "$rc"
 fi
 
-# Guard against silent no-ops: a clean exit (incl. a *cancelled* run — Claude Code exits 0
-# on cancel) with no changes to wiki/ or log.md means nothing was actually ingested. Don't
-# advance the baseline on a lie — leave the source(s) pending so the next run retries.
-CHANGED="$(git -C "$KB_DIR" status --porcelain -- wiki log.md 2>/dev/null || true)"
+# Guard against silent no-ops (incl. a cancelled run — Claude Code exits 0 on cancel).
+CHANGED="$(git -C "$KB_DIR" status --porcelain -- wiki log.md .ingest/coverage.tsv 2>/dev/null || true)"
 if [ -z "$CHANGED" ]; then
-  echo "ingest-new: the run produced NO changes to wiki/ or log.md — nothing was ingested." >&2
-  echo "ingest-new: baseline NOT advanced; source(s) stay pending. (Run cancelled, or raw/ content unreadable?)" >&2
+  echo "ingest-new: the run produced NO changes to wiki/, log.md, or coverage.tsv — nothing ingested." >&2
+  echo "ingest-new: baseline NOT advanced. (Run cancelled, or raw/ content unreadable?)" >&2
   exit 3
 fi
 
 echo "ingest-new: advancing manifest baseline + committing ..."
 "$SCAN" --accept >/dev/null
-( cd "$KB_DIR" && git add -A && git commit -q -m "Mechanical ingest ($(date +%F))" ) \
+( cd "$KB_DIR" && git add -A && git commit -q -m "Mechanical ingest — $MODE pass ($(date +%F))" ) \
   || echo "ingest-new: nothing to commit."
 echo "ingest-new: done."

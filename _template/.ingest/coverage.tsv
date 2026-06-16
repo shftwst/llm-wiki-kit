@@ -1,0 +1,7 @@
+# coverage.tsv — read-coverage frontier for progressive deepening (AGENT-owned).
+# The agent enumerates the corpus here (--map pass) and marks items read as it deepens.
+# One row per document or tight group. Columns: item	value	status	pass	last_read
+#   value:  high | med | low      (owner priorities in notes.md first, then type heuristic)
+#   status: unread | partial | read
+# The deepen pass reads this to pick the next highest-value unread items. Unlike
+# manifest.tsv (script-owned), coverage.tsv is the agent's — the wrapper never edits it.
