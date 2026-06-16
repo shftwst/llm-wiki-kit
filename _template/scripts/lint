@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# lint — mechanical QA over the wiki (no LLM, no cost). Structural + style + privacy checks.
+#
+#   ./scripts/lint            run all checks; exit 0 if no ERRORS, 1 if any
+#   ./scripts/lint --quiet    print only ERRORS and the summary
+#
+# ERRORS are clear defects (missing Sources, bad frontmatter). WARNINGS are smells to
+# review (orphans, no-read-source pages, stale derived, style tells, privacy hits).
+# This is the cheap pre-check; the LLM Lint workflow and the verify pass go deeper.
+
+set -eu   # no pipefail: `grep ... | wc` deliberately tolerates no-match
+KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WIKI="$KB_DIR/wiki"
+QUIET=0; [ "${1:-}" = "--quiet" ] && QUIET=1
+[ -d "$WIKI" ] || { echo "lint: no wiki/ yet."; exit 0; }
+
+ERR=0; WARN=0
+err()  { ERR=$((ERR+1));  printf 'ERROR   %s\n' "$1"; }
+warn() { WARN=$((WARN+1)); [ "$QUIET" -eq 1 ] || printf 'warn    %s\n' "$1"; }
+sect() { [ "$QUIET" -eq 1 ] || printf '\n— %s —\n' "$1"; }
+
+pages="$(find "$WIKI" -name '*.md' | sort)"
+slugs="$(for f in $pages; do basename "$f" .md; done | sort -u)"
+fm() { awk -F': ' -v k="^$2:" '$0 ~ k {sub(/^[^:]*: */,""); print; exit}' "$1"; }
+
+printf '══════ lint: %s/wiki ══════\n' "$(basename "$KB_DIR")"
+
+# --- frontmatter completeness + valid enums ---------------------------------
+sect "frontmatter"
+for f in $pages; do
+  rel=${f#"$WIKI"/}
+  for k in type privilege created updated; do
+    grep -qE "^$k:" "$f" || err "$rel: missing frontmatter '$k:'"
+  done
+  pv="$(fm "$f" privilege)"
+  case "$pv" in default|business-sensitive|personal-sensitive|"") ;; *) warn "$rel: unknown privilege '$pv'";; esac
+done
+
+# --- content pages should have ## Sources; flag all-not-read pages ----------
+# (source pages describe the source itself, so they are exempt)
+sect "citations"
+for f in $pages; do
+  rel=${f#"$WIKI"/}; ty="$(fm "$f" type)"
+  case "$ty" in
+    entity|concept|comparison|analysis)
+      if ! grep -qE '^## Sources' "$f"; then warn "$rel: type=$ty but no '## Sources' section (un-cited / not yet deepened)"; continue; fi
+      src="$(sed -n '/^## Sources/,$p' "$f")"
+      total=$(printf '%s\n' "$src" | grep -cE '^- ' || true)
+      rin=$(printf '%s\n' "$src" | grep -cE 'read in full' || true)
+      [ "${total:-0}" -gt 0 ] && [ "${rin:-0}" -eq 0 ] && warn "$rel: every source marked 'not read' (claims may be inferred)"
+      ;;
+  esac
+done
+
+# --- dangling wikilinks + orphans -------------------------------------------
+sect "links"
+targets="$(grep -rhoE '\[\[[^]]+\]\]' "$WIKI" --include='*.md' 2>/dev/null | sed -E 's/\[\[([^]|#]+).*/\1/' | sort -u || true)"
+for t in $targets; do
+  printf '%s\n' "$slugs" | grep -qxF "$t" || warn "dangling [[${t}]] — no page named ${t}.md"
+done
+for s in $slugs; do
+  case "$s" in index|overview) continue;; esac
+  cnt=$(grep -rlE "\[\[${s}[]|#]" "$WIKI" --include='*.md' 2>/dev/null | grep -vc "/${s}\.md" || true)
+  [ "${cnt:-0}" -eq 0 ] && warn "orphan: ${s}.md has no inbound [[links]]"
+done
+
+# --- stale derived pages (derived_from page updated > this as_of) -----------
+sect "freshness"
+for f in $pages; do
+  rel=${f#"$WIKI"/}; asof="$(fm "$f" as_of)"; [ -n "$asof" ] || continue
+  for d in $(grep -E '^derived_from:' "$f" | grep -oE '\[\[[^]]+\]\]' | sed -E 's/\[\[([^]|#]+).*/\1/'); do
+    dfile=$(printf '%s\n' $pages | grep -E "/${d}\.md$" | head -1 || true); [ -n "$dfile" ] || continue
+    dupd="$(fm "$dfile" updated)"; [ -n "$dupd" ] || continue
+    [[ "$dupd" > "$asof" ]] && warn "$rel: stale — [[${d}]] updated $dupd > as_of $asof"
+  done
+done
+
+# --- style tells -------------------------------------------------------------
+sect "style"
+bv=$(grep -rhoiwE 'crucial|robust|comprehensive|multifaceted|seamless|vibrant|boasts|nestled|testament|showcase[sd]?|underscore[sd]?|pivotal|delve|tapestry|renowned|groundbreaking|leverage[sd]?|intricate|meticulous' "$WIKI" --include='*.md' 2>/dev/null | wc -l | tr -d ' ')
+[ "${bv:-0}" -gt 0 ] && warn "style: $bv banned-vocabulary occurrence(s)"
+cq=$(grep -rho '[“”‘’]' "$WIKI" --include='*.md' 2>/dev/null | wc -l | tr -d ' ')
+[ "${cq:-0}" -gt 0 ] && warn "style: $cq curly quote(s)/apostrophe(s) (use straight)"
+for f in $pages; do
+  rel=${f#"$WIKI"/}; d=$(grep -o '—' "$f" 2>/dev/null | wc -l | tr -d ' ')
+  [ "${d:-0}" -gt 12 ] && warn "style: $rel has $d em-dashes (overuse)"
+done
+
+# --- privacy heuristics (report for human review; never fail) ---------------
+sect "privacy"
+sin="$(grep -rnoE '\b[0-9]{3}-[0-9]{3}-[0-9]{3}\b' "$WIKI" --include='*.md' 2>/dev/null || true)"
+[ -n "$sin" ] && { warn "privacy: SIN-shaped number(s) found — confirm these are NOT SINs:"; printf '%s\n' "$sin" | sed 's/^/          /'; }
+cred="$(grep -rinE 'social insurance|company key|corporation key|\brecovery code\b|\bpassword\b' "$WIKI" --include='*.md' 2>/dev/null | grep -vi 'not recorded' || true)"
+[ -n "$cred" ] && warn "privacy: credential/identifier keyword(s) present — review (grep for them)"
+
+# --- summary -----------------------------------------------------------------
+printf '\n══════ %d error(s), %d warning(s) ══════\n' "$ERR" "$WARN"
+[ "$ERR" -eq 0 ] || exit 1

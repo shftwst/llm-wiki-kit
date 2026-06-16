@@ -297,7 +297,10 @@ For each stale document:
 
 ### Lint (health check)
 
-Scan for: contradictions between pages; stale claims newer sources superseded;
+Run `scripts/lint` first — it does the cheap mechanical checks with no LLM (frontmatter,
+missing `## Sources`, dangling links, orphans, stale derived, style tells, privacy
+heuristics). Then do what a script cannot judge — scan for: contradictions between pages;
+stale claims newer sources superseded;
 **stale derived pages — for any page with `derived_from`, if any listed page's `updated`
 is later than this page's `as_of`, flag it stale (a pure date comparison, no re-reading
 needed)**; orphan pages (no inbound links); concepts mentioned but lacking a page; missing
