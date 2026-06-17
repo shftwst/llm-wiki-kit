@@ -33,6 +33,8 @@ writes that resolve through a `raw/` symlink into the living source, and `Bash` 
 `rm` / `mv` / `chmod` or redirects into `raw/`. Reads pass (including a read that hydrates a cloud
 placeholder). The hook exits `2` to block, so it holds even under `--permission-mode acceptEdits`
 and `bypassPermissions` (that is, `ingest --auto`). It needs `python3` and fails closed if absent.
+Being session-scoped it also covers **subagents** (the agent's Task-tool children), and it locates the
+KB by marker (`raw/` beside `AGENTS.md`), so it holds even when a subagent runs in another directory.
 
 Verify it on your machine (should print a BLOCK message and exit 2):
 

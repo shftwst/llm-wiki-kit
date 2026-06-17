@@ -12,6 +12,20 @@
 import sys, os, re, json
 
 
+def find_kb(start):
+    # Walk up from `start` to the KB root, identified by a raw/ dir beside the AGENTS.md schema
+    # (or .schema/). This makes the guard work no matter which cwd a (sub)agent runs in.
+    d = os.path.abspath(start)
+    while True:
+        if os.path.isdir(os.path.join(d, "raw")) and (
+                os.path.exists(os.path.join(d, "AGENTS.md")) or os.path.isdir(os.path.join(d, ".schema"))):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -22,7 +36,9 @@ def main():
     tool = data.get("tool_name", "")
     ti = data.get("tool_input", {}) or {}
     cwd = data.get("cwd") or os.getcwd()
-    kb = os.environ.get("CLAUDE_PROJECT_DIR") or cwd
+    # KB root: prefer the session project dir, else discover it by marker. Resolving from a marker
+    # (not just cwd) means a subagent running in a different directory is still covered.
+    kb = os.environ.get("CLAUDE_PROJECT_DIR") or find_kb(cwd) or find_kb(os.getcwd()) or cwd
     raw = os.path.normpath(os.path.join(kb, "raw"))
     raw_real = os.path.realpath(raw)
 
