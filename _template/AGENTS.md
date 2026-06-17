@@ -158,6 +158,7 @@ files.
   type: source | entity | concept | comparison | overview | index
   privilege: default | business-sensitive | personal-sensitive
   relevance: relevant | off-topic        # optional; off-topic quarantines the page
+  maintained_by: agent | human           # optional; human = owner-maintained, agent never rewrites it
   tags: []
   created: YYYY-MM-DD
   updated: YYYY-MM-DD
@@ -458,7 +459,10 @@ discuss takeaways with. In that mode:
 - You own `wiki/`; the human owns `raw/`, `inbox/`, `notes.md`, and the questions. **`raw/`
   is strictly read-only to you, never create, edit, or delete anything there, including
   through symlinks. `notes.md` is the owner's authoritative facts/corrections: read and
-  cite it ("per owner"), never rewrite it.**
+  cite it ("per owner"), never rewrite it. A wiki page whose frontmatter says
+  `maintained_by: human` is owner-maintained the same way: read and cite it, but never rewrite,
+  restructure, or delete it; if it conflicts with a source, add a `> [!review]` rather than
+  editing the page.**
 - Depth over breadth: read the documents and synthesize; never pad the wiki with pages that
   only restate folder names.
 - Structure emerges from content, don't impose a taxonomy up front.

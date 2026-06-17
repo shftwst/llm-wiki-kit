@@ -39,6 +39,8 @@ for f in $pages; do
   [ -z "$ty" ] || kb_type_valid "$ty" || warn "$rel: unknown type '$ty' (not in .schema/page-types.tsv)"
   rv="$(fm "$f" relevance)"
   case "${rv:-}" in ''|relevant|off-topic) ;; *) warn "$rel: unknown relevance '$rv' (use relevant | off-topic)";; esac
+  mb="$(fm "$f" maintained_by)"
+  case "${mb:-}" in ''|agent|human) ;; *) warn "$rel: unknown maintained_by '$mb' (use agent | human)";; esac
 done
 
 # --- content pages should have ## Sources; flag all-not-read pages ----------
@@ -47,6 +49,7 @@ sect "citations"
 for f in $pages; do
   rel=${f#"$WIKI"/}; ty="$(fm "$f" type)"
   [ "$(kb_type_class "$ty")" = content ] || continue   # only content pages must cite
+  [ "$(fm "$f" maintained_by)" = human ] && continue   # owner-authored: their content, their call
   if ! grep -qE '^## Sources' "$f"; then warn "$rel: type=$ty but no '## Sources' section (un-cited / not yet deepened)"; continue; fi
   src="$(sed -n '/^## Sources/,$p' "$f")"
   total=$(printf '%s\n' "$src" | grep -cE '^- ' || true)
@@ -72,6 +75,7 @@ for f in $pages; do
   rel=${f#"$WIKI"/}; ty="$(fm "$f" type)"
   [ "$(kb_type_class "$ty")" = content ] || continue
   [ "$(fm "$f" relevance)" = off-topic ] && continue   # already quarantined
+  [ "$(fm "$f" maintained_by)" = human ] && continue   # owner-authored; may be brief by design
   base="$(basename "$f" .md)"
   body="$(awk 'NR==1&&/^---/{infm=1;next} infm&&/^---/{infm=0;next} infm{next} /^## Sources/{exit} {print}' "$f")"
   words=$(printf '%s' "$body" | wc -w | tr -d ' ')
@@ -116,6 +120,7 @@ for f in $pages; do
   rel=${f#"$WIKI"/}; ty="$(fm "$f" type)"
   case "$(kb_type_class "$ty")" in source) continue;; esac   # source pages: provenance is their subject
   [ "$ty" = index ] && continue                              # the catalog is an auto-generated link list
+  [ "$(fm "$f" maintained_by)" = human ] && continue         # owner-authored: not the agent's prose to police
   body="$(awk 'NR==1&&/^---/{infm=1;next} infm&&/^---/{infm=0;next} infm{next} /^## Sources/{exit} {print}' "$f")"
   hit="$(printf '%s\n' "$body" | grep -inE "$pat" || true)"
   if [ -n "$hit" ]; then

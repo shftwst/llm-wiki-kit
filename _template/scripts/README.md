@@ -220,7 +220,19 @@ CLAUDE_MODEL=claude-sonnet-4-6 ./scripts/ingest   # cheaper/faster for small bat
 ```
 
 On success it advances `.ingest/manifest.tsv` and commits. The manifest only advances when
-the ingest run exits cleanly, so an interrupted run leaves the queue intact for next time.
+the ingest run actually changed something (a content signature, computed without git, guards
+against a cancelled run silently advancing the baseline), so an interrupted run leaves the queue
+intact for next time.
+
+**Git is optional.** Every git call is gated on git being present and the KB being a repo; without
+git the manifest still advances and changes are saved to files, just not committed. When git *is*
+present, any pending human edits to `wiki/` or `notes.md` are committed on their own *before* the
+agent runs, so a hand edit is never silently overwritten or folded into the ingest commit.
+
+**Human-maintained pages.** A wiki page whose frontmatter says `maintained_by: human` is
+owner-authored: the agent reads and cites it but never rewrites or deletes it (the per-page
+equivalent of `notes.md`), and `lint` exempts it from the agent-discipline checks (citations,
+prose hygiene, thin-page). `stats` counts them.
 
 ## Opt-in auto-ingest
 

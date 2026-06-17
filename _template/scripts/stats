@@ -83,6 +83,8 @@ if [ -d "$WIKI" ]; then
   printf '  open [!review]   %s flag(s) across %s page(s)\n' "$revn" "$rev"
   qz=$(grep -rlE '^relevance: *off-topic' "$WIKI" --include='*.md' 2>/dev/null | wc -l | tr -d ' ')
   [ "${qz:-0}" -gt 0 ] && printf '  quarantined     %s page(s) (relevance: off-topic; excluded from index/publish)\n' "$qz"
+  hm=$(grep -rlE '^maintained_by: *human' "$WIKI" --include='*.md' 2>/dev/null | wc -l | tr -d ' ')
+  [ "${hm:-0}" -gt 0 ] && printf '  human-maintained %s page(s) (owner-authored; agent never rewrites them)\n' "$hm"
 else
   printf '  (none yet)\n'
 fi
