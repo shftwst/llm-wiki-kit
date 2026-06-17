@@ -1,9 +1,15 @@
 # Relevance and noise tolerance (design)
 
-**Status: design only, nothing built yet. Opt-in.** This captures the architecture so the
-decisions are recorded before any code. The goal is to make ingestion tolerant of irrelevant
+**Status: Phase 1 (deterministic) is built; Phases 2-3 are not. Opt-in.** This captures the
+architecture so the decisions are recorded. The goal is to make ingestion tolerant of irrelevant
 input (junk files, accidental drops, misfiled documents, off-topic material) without ever
 silently discarding something real.
+
+Phase 1 shipped: the **charter** (a scope/non-scope section in `AGENTS.md`), the
+**`.ingestignore`** junk filter honored by `scan` and `sweep` (matched names plus zero-byte
+files, skipped as whole sources and inside directory sources), and **duplicate detection** in
+`scan` (size-signature candidates confirmed by a content hash, reported under *Possible
+duplicates* in `pending.md`).
 
 Every KB accumulates noise. `inbox/` is a shared drop point, so people will drop the wrong
 thing: a duplicate, a system file, or a document that belongs to a different KB. The system
@@ -172,9 +178,9 @@ triage that writes it, the quarantine convention, and the audit.
 
 ## 9. Phased plan
 
-- **Phase 1 (cheap, deterministic).** The charter in `AGENTS.md`, `.ingestignore` honoured by
-  `sweep`/`scan`, and dedup at scan. No LLM. Removes the obvious junk and gives relevance a
-  reference.
+- **Phase 1 (cheap, deterministic). Built.** The charter in `AGENTS.md`, `.ingestignore`
+  honoured by `sweep`/`scan`, and dedup at scan. No LLM. Removes the obvious junk and gives
+  relevance a reference.
 - **Phase 2 (cheap LLM).** The `relevance` signal in the ledger, map-pass triage that parks
   off-charter/junk and routes `unsure` to `pending.md`, and the quarantine convention
   (frontmatter flag plus publish/index exclusion) with the lint thin-page check.

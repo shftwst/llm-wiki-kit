@@ -1,0 +1,23 @@
+# .ingestignore — names that scan and sweep skip as non-sources (junk, system cruft).
+# gitignore-style globs matched against each item's name; '#' comments and blank lines ignored.
+# Zero-byte files are skipped automatically (no pattern needed). Edit to fit your sources.
+
+# macOS / Windows / editor cruft
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+__MACOSX
+
+# temp / partial / lock files
+~$*
+*.tmp
+*.temp
+*.swp
+*.bak
+*.crdownload
+*.part
+*.partial
+.~lock.*#

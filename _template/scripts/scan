@@ -2,7 +2,10 @@
 # scan — detect new/changed/removed sources in raw/ vs the ingest manifest.
 #
 # Each top-level entry in raw/ is one source (file, directory, or symlink to a living
-# document). Fingerprints follow symlinks. The diff is against .ingest/manifest.tsv.
+# document). Fingerprints follow symlinks. The diff is against .ingest/manifest.tsv. Names in
+# .ingestignore and zero-byte files are skipped as junk (as whole sources, and inside directory
+# sources so junk does not affect a fingerprint); sources with identical content are flagged as
+# possible duplicates.
 #
 #   ./scan            detect; write .ingest/pending.md; exit 0 = clean, 10 = pending
 #   ./scan --accept   advance the manifest baseline to current state (used post-ingest)
@@ -21,6 +24,7 @@ case "${1:-}" in
 esac
 
 KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$KB_DIR/scripts/kblib.sh"   # .ingestignore junk filter (kb_skip / kb_ignored)
 RAW_DIR="$KB_DIR/raw"
 STATE_DIR="$KB_DIR/.ingest"
 MANIFEST="$STATE_DIR/manifest.tsv"
@@ -49,11 +53,30 @@ else
   _statline() { stat -c '%s %Y' "$1"; }   # GNU / Linux
 fi
 
-# fingerprint = hash of (relative-path size mtime) for every file under the source,
+# fingerprint = hash of (relative-path size mtime) for every non-junk file under the source,
 # sorted for stability. Follows symlinks (-L) so living symlink targets are covered.
 fingerprint() {
   find -L "$1" -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do
+    kb_ignored "${f##*/}" && continue
     printf '%s %s\n' "$f" "$(_statline "$f")"
+  done | _hash
+}
+
+# size_sig = "<total-bytes>_<file-count>" over non-junk files. Cheap (stat only); used to find
+# duplicate CANDIDATES before the more expensive content hash.
+size_sig() {
+  find -L "$1" -type f 2>/dev/null | while IFS= read -r f; do
+    kb_ignored "${f##*/}" && continue
+    _statline "$f"
+  done | awk '{s+=$1; n++} END{printf "%s_%s", s+0, n+0}'
+}
+
+# content_hash = path-independent hash of file CONTENTS (sorted, non-junk). Detects exact
+# duplicates wherever they sit. Only run on size-collision candidates.
+content_hash() {
+  find -L "$1" -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do
+    kb_ignored "${f##*/}" && continue
+    _hash < "$f"
   done | _hash
 }
 
@@ -93,16 +116,18 @@ if [ "$MODE" = "refresh" ]; then
   [ "$staled" -gt 0 ] && exit 10 || exit 0
 fi
 
-SEEN_FILE="$(mktemp)"; trap 'rm -f "$SEEN_FILE"' EXIT
-NEW=(); CHANGED=(); NEWMAN=()
+SEEN_FILE="$(mktemp)"; SIG_FILE="$(mktemp)"; trap 'rm -f "$SEEN_FILE" "$SIG_FILE"' EXIT
+NEW=(); CHANGED=(); NEWMAN=(); SKIPPED=()
 
 shopt -s nullglob
 for src in "$RAW_DIR"/*; do
   base="$(basename "$src")"
   case "$base" in README.md|.*) continue;; esac
+  if kb_skip "$src"; then SKIPPED+=("raw/$base"); continue; fi   # .ingestignore / zero-byte
   rel="raw/$base"
   printf '%s\n' "$rel" >> "$SEEN_FILE"
   fp="$(fingerprint "$src")"
+  printf '%s\t%s\n' "$rel" "$(size_sig "$src")" >> "$SIG_FILE"
   kind="$(kind_of "$src")"
   prior_line="$(awk -F'\t' -v p="$rel" '$1==p{print; exit}' "$MANIFEST")"
   if [ -z "$prior_line" ]; then
@@ -127,6 +152,24 @@ while IFS=$'\t' read -r path _k _f _l; do
   grep -qxF "$path" "$SEEN_FILE" || REMOVED+=("$path")
 done < "$MANIFEST"
 
+# --- duplicates: sources sharing a size signature, confirmed by content hash -----------
+# Size collisions are rare, so a content hash runs only for candidates that share a signature.
+DUPES=()
+while IFS= read -r sig; do
+  [ -n "$sig" ] || continue
+  ch_file="$(mktemp)"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    printf '%s\t%s\n' "$(content_hash "$RAW_DIR/${rel#raw/}")" "$rel" >> "$ch_file"
+  done < <(awk -F'\t' -v s="$sig" '$2==s{print $1}' "$SIG_FILE")
+  while IFS= read -r h; do
+    [ -n "$h" ] || continue
+    grp="$(awk -F'\t' -v hh="$h" '$1==hh{print $2}' "$ch_file" | paste -sd'|' - | sed 's/|/ = /g')"
+    DUPES+=("$grp")
+  done < <(cut -f1 "$ch_file" | sort | uniq -d)
+  rm -f "$ch_file"
+done < <(cut -f2 "$SIG_FILE" | sort | uniq -d)
+
 # --- accept: rewrite manifest to current state, then stop --------------------
 if [ "$MODE" = "accept" ]; then
   { printf '%s\n' "$MANIFEST_HEADER"
@@ -147,9 +190,13 @@ fi
   if [ "${#CHANGED[@]}" -eq 0 ]; then printf '_none_\n'; else for x in "${CHANGED[@]}"; do printf -- '- `%s`\n' "$x"; done; fi
   printf '\n## Removed (%d)\n' "${#REMOVED[@]}"
   if [ "${#REMOVED[@]}" -eq 0 ]; then printf '_none_\n'; else for x in "${REMOVED[@]}"; do printf -- '- `%s`\n' "$x"; done; fi
+  printf '\n## Skipped as junk (%d)\n' "${#SKIPPED[@]}"
+  if [ "${#SKIPPED[@]}" -eq 0 ]; then printf '_none_\n'; else for x in "${SKIPPED[@]}"; do printf -- '- `%s`\n' "$x"; done; fi
+  printf '\n## Possible duplicates (%d)\n' "${#DUPES[@]}"
+  if [ "${#DUPES[@]}" -eq 0 ]; then printf '_none_\n'; else for x in "${DUPES[@]}"; do printf -- '- %s\n' "$x"; done; fi
 } > "$PENDING"
 
 PEND=$(( ${#NEW[@]} + ${#CHANGED[@]} + ${#REMOVED[@]} ))
-printf 'scan: %d new, %d changed, %d removed → %s\n' \
-  "${#NEW[@]}" "${#CHANGED[@]}" "${#REMOVED[@]}" "${PENDING#"$KB_DIR"/}"
+printf 'scan: %d new, %d changed, %d removed, %d skipped, %d dup-group(s) → %s\n' \
+  "${#NEW[@]}" "${#CHANGED[@]}" "${#REMOVED[@]}" "${#SKIPPED[@]}" "${#DUPES[@]}" "${PENDING#"$KB_DIR"/}"
 [ "$PEND" -eq 0 ] && exit 0 || exit 10

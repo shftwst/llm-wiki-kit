@@ -17,6 +17,7 @@ set -euo pipefail
 DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
 
 KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$KB_DIR/scripts/kblib.sh"   # .ingestignore junk filter (kb_skip)
 INBOX="$KB_DIR/inbox"
 RAW="$KB_DIR/raw"
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -24,11 +25,15 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 [ -d "$INBOX" ] || { echo "sweep: no inbox/ at $INBOX — nothing to do."; exit 0; }
 mkdir -p "$RAW"
 
-moved=0; names=()
+moved=0; skipped=0; names=()
 shopt -s nullglob
 for item in "$INBOX"/*; do
   base="$(basename "$item")"
   [ "$base" = "README.md" ] && continue
+  if kb_skip "$item"; then
+    echo "sweep: skipped junk inbox/$base (.ingestignore or zero-byte); left in inbox"
+    skipped=$((skipped + 1)); continue
+  fi
   if [ -e "$RAW/$base" ]; then
     # never clobber an existing raw source; suffix the incoming one
     if [ "${base%.*}" = "$base" ]; then newname="${base}-$STAMP"
@@ -47,7 +52,8 @@ done
 shopt -u nullglob
 
 if [ "$moved" -eq 0 ]; then
-  echo "sweep: inbox empty — nothing to sweep."
+  if [ "$skipped" -gt 0 ]; then echo "sweep: nothing moved ($skipped junk item(s) skipped, left in inbox)."
+  else echo "sweep: inbox empty — nothing to sweep."; fi
   exit 0
 fi
 if [ "$DRY" -eq 1 ]; then
@@ -63,4 +69,8 @@ if command -v git >/dev/null 2>&1 && git -C "$KB_DIR" rev-parse --git-dir >/dev/
     >/dev/null 2>&1 || echo "sweep: (nothing committed)"
 fi
 
-echo "sweep: $moved item(s) moved into raw/."
+if [ "$skipped" -gt 0 ]; then
+  echo "sweep: $moved item(s) moved into raw/; $skipped junk item(s) skipped (left in inbox)."
+else
+  echo "sweep: $moved item(s) moved into raw/."
+fi

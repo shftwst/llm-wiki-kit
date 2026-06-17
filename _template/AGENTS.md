@@ -8,6 +8,23 @@ sources and asks questions, you do the bookkeeping.
 This KB follows the **LLM Wiki** pattern (Andrej Karpathy). The full write-up lives in
 the `llm-wiki-kit` repo at `docs/llm-wiki-pattern.md`.
 
+## Charter (what this KB covers)
+
+> **Fill this in before ingesting.** State in two or three sentences what this knowledge base is
+> about and, just as important, what is out of scope. This is the reference every relevance
+> judgment measures against; without it, "off-topic" is undefined.
+
+This knowledge base covers: _describe the subject of {{KB_TITLE}} and the kinds of sources that
+belong here._
+
+**Out of scope:** _name what does not belong: other entities, personal material, unrelated
+projects._
+
+Measure every source against this charter. A source that is junk, off-charter, or misfiled is
+**not** woven into the wiki in depth: flag it (in `log.md` or a `> [!review]` note, and name a
+better home if it is misfiled) and leave it for the owner, rather than discarding it silently.
+`scan` drops obvious junk (see `.ingestignore`); your job is the judgment the script cannot make.
+
 ## The three layers
 
 1. **`raw/`: sources.** The human's curated source material; your source of truth. You
@@ -28,6 +45,8 @@ the `llm-wiki-kit` repo at `docs/llm-wiki-pattern.md`.
 ├── README.md          # human-facing intro + Obsidian setup
 ├── notes.md           # owner-authored facts & corrections (authoritative; cite as "per owner")
 ├── STYLE.md           # writing-style guide, avoid AI-writing tells (followed on every page)
+├── .ingestignore      # names scan/sweep skip as junk (system cruft, temp files)
+├── .schema/           # page-type + privilege-tier vocabularies (lint/classify/publish read these)
 ├── inbox/             # shareable staging; scripts/sweep MOVES drops into raw/
 ├── raw/               # sources (files, directories, symlinks), protected, never shared
 ├── wiki/              # the wiki (Obsidian vault root), you own everything here
@@ -67,7 +86,9 @@ Support re-ingesting updates, see the **Re-ingest** workflow.
 `inbox/` is a **shareable staging area**, the one directory exposed to contributors.
 People drop files or folders into it; `scripts/sweep` then **moves** each item into
 `raw/`. Because the sweep *moves* (not copies), a curated source leaves the shared area
-entirely, so contributors can never read, alter, or delete the real `raw/` source.
+entirely, so contributors can never read, alter, or delete the real `raw/` source. Items
+matching `.ingestignore` (or zero-byte files) are left in `inbox/` rather than moved, so junk
+never reaches the protected store.
 
 - **Never share `raw/` or the KB root: share only `inbox/`** (e.g. point `inbox/` at a
   shared cloud folder, or share just that subdirectory).
@@ -358,7 +379,9 @@ to ask. The machinery lives in `scripts/` and `.ingest/`:
 - **`scripts/scan`**: walks `raw/`, fingerprints each source (following symlinks), and
   diffs against `.ingest/manifest.tsv` to classify **new / changed / removed**. Writes the
   queue to `.ingest/pending.md`; exits `10` if anything is pending, `0` if clean. Pure
-  script, no LLM, no cost. It is also the drift check the Lint workflow calls.
+  script, no LLM, no cost. It is also the drift check the Lint workflow calls. Names matching
+  `.ingestignore` and zero-byte files are skipped as junk (listed under *Skipped* in
+  `pending.md`), and sources with identical content are flagged under *Possible duplicates*.
 - **`.ingest/manifest.tsv`**: the authoritative detection baseline: one row per ingested
   source (`source_path · kind · fingerprint · last_ingested`). **Never edit it by hand,
   and neither do you**, `scripts/ingest` advances it after a successful ingest.

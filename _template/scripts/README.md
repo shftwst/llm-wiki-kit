@@ -37,6 +37,7 @@ once curated, a source leaves the shared area and contributors can't alter or de
 
 It runs automatically as the first step of `ingest` (disable with `--no-sweep`).
 Name collisions never overwrite a `raw/` source, the incoming item is timestamp-suffixed.
+Items matching `.ingestignore` and zero-byte files are skipped as junk and left in `inbox/`.
 
 ## `lint`: mechanical QA
 
@@ -121,7 +122,9 @@ content is staged under `.publish/<role>/content/` with build instructions.
 ## `scan`: detect changes
 
 Walks `raw/`, fingerprints each source (following symlinks into living drives), and diffs
-against `.ingest/manifest.tsv`. Writes the queue to `.ingest/pending.md`.
+against `.ingest/manifest.tsv`. Writes the queue to `.ingest/pending.md`. Names in
+`.ingestignore` and zero-byte files are skipped as junk; sources with identical content are
+flagged as possible duplicates.
 
 ```sh
 ./scripts/scan          # detect; exit 0 = clean, 10 = changes pending
