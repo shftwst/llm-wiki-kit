@@ -41,6 +41,11 @@ for f in $pages; do
   case "${rv:-}" in ''|relevant|off-topic) ;; *) warn "$rel: unknown relevance '$rv' (use relevant | off-topic)";; esac
   mb="$(fm "$f" maintained_by)"
   case "${mb:-}" in ''|agent|human) ;; *) warn "$rel: unknown maintained_by '$mb' (use agent | human)";; esac
+  og="$(fm "$f" origin)"
+  case "${og:-}" in ''|ingest|query) ;; *) warn "$rel: unknown origin '$og' (use ingest | query)";; esac
+  if [ "${og:-}" = query ] && ! grep -qE '^derived_from:' "$f"; then
+    err "$rel: origin=query but no 'derived_from:' (a query-filed page must cite the pages it synthesised)"
+  fi
 done
 
 # --- content pages should have ## Sources; flag all-not-read pages ----------
