@@ -14,10 +14,24 @@ job, not yours. (Based on Andrej Karpathy's **LLM Wiki** pattern,
 [`docs/llm-wiki-pattern.md`](docs/llm-wiki-pattern.md).)
 
 ```
-   inbox/  ──sweep──▶   raw/   ──scan + ingest──▶   wiki/   ──publish──▶   website
-  you drop here       locked, never edited        the linked notes       filtered per role
-  (one shared box)    (your safe originals)       (what you ask)         (read-only, optional)
-                      └────────── the AI does this middle part on its own ──────────┘
+   ┌──────────┐
+   │  inbox/  │   you drop files here, the one shared folder everything enters through
+   └────┬─────┘
+        │   sweep: moves each drop into the locked store
+        ▼
+   ┌──────────┐
+   │   raw/   │   your original documents, read-only and never edited
+   └────┬─────┘
+        │   scan + ingest: the AI reads what is new and writes it up
+        ▼
+   ┌──────────┐
+   │  wiki/   │   tidy linked notes you can ask questions of
+   └────┬─────┘
+        │   publish (optional): a read-only site, filtered per audience
+        ▼
+   ┌──────────┐
+   │ website  │   what each audience is allowed to see
+   └──────────┘
 ```
 
 ## Nothing new to learn
