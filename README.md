@@ -1,114 +1,87 @@
-# llm-wiki-kit
+# llm-wiki-gen
 
-A scaffolder for **LLM-maintained knowledge bases**, personal or team wikis that an LLM
-agent reads into, writes, and keeps current. Based on Andrej Karpathy's **LLM Wiki**
-pattern ([`docs/llm-wiki-pattern.md`](docs/llm-wiki-pattern.md)).
+Your business already has the answers. They're just buried in folders, inboxes, and someone's
+head. This makes that pile answerable: ask a question in plain words, get an answer pulled from
+your own documents, not from a guess. Where's the signed contract? What rate did we agree? Who
+did we use for insurance last year?
 
-Point it anywhere and it stamps out a self-contained knowledge base: a source directory,
-an LLM-owned wiki, a schema the agent follows, and an append-only log. Each generated KB
-is its own git repo.
+Finding a fact stops being an afternoon of digging. And when the person who knew everything is
+on holiday, or gone, the knowledge stays.
 
-## Quickstart
+You don't tag, sort, or file anything. You drop documents in a folder; an AI reads them, writes
+them into a tidy set of linked notes, and keeps it current as you add more. The filing is its
+job, not yours. (Based on Andrej Karpathy's **LLM Wiki** pattern,
+[`docs/llm-wiki-pattern.md`](docs/llm-wiki-pattern.md).)
+
+## Nothing new to learn
+
+Most of these systems die because they ask everyone to tag and tidy, and people quietly stop.
+Here there's one folder. Drop a file in, walk away, that's the whole job. Share it as a network
+folder and it's the only thing anyone touches; the rest stays out of sight. Because there's
+nothing to learn, it actually gets used, which is the only reason any of this is worth doing.
+
+It doesn't fight how you already work, either. Keep your files in the cloud exactly as you do
+now, point it at them, and it adds the connections a folder of files can never show you: who a
+contract is with, which rate replaced which, where two documents disagree.
+
+## Your files are safe
+
+Nothing you put in ever gets changed. The system can read your documents but is physically
+blocked from editing, moving, or deleting them. The AI can't either, even when it's running on
+its own overnight. Point it at a shared drive someone else keeps tidy and it reads through to
+the originals without touching them, picking up edits whenever they happen. No "the computer
+reorganised my files" disaster waiting to go off.
+
+(For whoever sets it up: a Claude Code hook, `scripts/guard-raw`, enforces this on the `raw/`
+folder; sources can be plain files or symlinks to living documents.)
+
+## Answers you can actually trust
+
+A knowledge base is worthless if you can't believe it. Every answer traces back to the real
+document it came from, so you can check it yourself. When two documents disagree it says so,
+instead of quietly picking one and hoping. It re-reads the sources to mark its own homework, and
+flags anything it can't back up rather than inventing something to fill the gap.
+
+It's careful with your money, too: it reads the important things first (you say what matters),
+sets obvious junk aside for you to glance at rather than deleting it, and when it's unsure it
+keeps a document, because losing something real is worse than holding onto something useless.
+
+## It gets to know your business
+
+The more you use it, the better it gets. It reads deeper over time, remembers your corrections,
+and saves the answers to questions you've already asked so the next person gets them straight
+away. After a while it knows your suppliers, your clients, and your quirks, and the answers come
+faster and sharper.
+
+## Quiet and cheap
+
+It only does paid work when something actually changed; an ordinary day with nothing new costs
+nothing. It looks for new files itself and gets on with it, no babysitting. Run it by hand or
+leave it on a schedule (`scripts/ingest --auto`).
+
+## The right people see the right things
+
+You decide who sees what. Sensitive material (anything with personal or financial detail) can
+stay on a computer in your own office and never be sent anywhere. And you can hand someone a
+plain read-only website of the knowledge, filtered to their level: a client sees only
+client-safe pages, your staff see more, you see everything, with private bits and any path back
+to the original files stripped out. (`scripts/publish <role>`, with sensitivity tagging from
+`scripts/classify`.)
+
+## Setting one up
+
+Each knowledge base is a self-contained folder, and its own git repo. Create one with:
 
 ```sh
-./scripts/new-kb my-kb "My KB Title"
+./scripts/new-kb my-kb "My Knowledge Base Title"              # creates ../my-kb/
+./scripts/new-kb my-kb "My KB Title" /path/to/parent-dir     # or elsewhere
 ```
 
-This creates `../my-kb/` (a sibling of the kit by default), substitutes the
-name/title/date into the template, and runs `git init` with an initial commit. Then:
-
-```sh
-cd ../my-kb
-# open in Claude Code; open wiki/ as an Obsidian vault
-# drop sources into raw/ and ask the agent to ingest them
-```
-
-Pick a different location with a third argument:
-
-```sh
-./scripts/new-kb my-kb "My KB Title" /path/to/parent-dir
-```
-
-## What's in a generated KB
-
-```
-my-kb/
-├── AGENTS.md   # the schema the LLM follows (page conventions + workflows)
-│   ├── CLAUDE.md   # thin pointer to AGENTS.md (Claude Code auto-loads it)
-├── README.md   # human intro + Obsidian setup
-├── inbox/      # shareable intake; sweep moves drops into raw/ (raw/ stays private)
-├── raw/        # sources: files, directories, or symlinks to living docs
-├── wiki/       # the LLM-owned wiki (Obsidian vault root)
-│   ├── index.md
-│   └── overview.md
-├── scripts/    # sweep · scan · ingest · lint (QA) · stats (dashboard) · new-kb
-├── .ingest/    # state: manifest · coverage (read frontier) · qa (verification) · cost · pending
-└── log.md      # append-only ingest / re-ingest / query / lint / qa record
-```
-
-## Protected store + shared intake
-
-`raw/` is the protected source of truth, you never share it. `inbox/` is a shareable
-staging directory: contributors drop files there, and `scripts/sweep` **moves** each
-into `raw/`. Because the sweep *moves* (not copies), a curated source leaves the shared
-area entirely, contributors can't reach, alter, or delete the real `raw/` files. Share
-only `inbox/` (e.g. a shared cloud folder); keep `raw/` and the KB root private.
-
-## Mechanical ingest
-
-Ingest never has to wait for you to remember it. `scripts/scan` fingerprints every
-source, including the contents behind a living symlink, and diffs against a committed
-baseline (`.ingest/manifest.tsv`) to find what's new, changed, or removed. It's a pure
-script: no LLM, no cost. `scripts/ingest` runs the scan and, if anything changed,
-ingests it via headless Claude Code, then advances the baseline and commits. Run it by
-hand, or schedule it (`--auto`) with the cron/launchd snippets in `scripts/README.md`.
-
-Ingestion is **progressive**: a cheap `--map` pass triages the corpus into a value-ranked
-read frontier (`.ingest/coverage.tsv`), a default read pass reads the high-value documents
-in full, and repeatable `--deepen` passes go further, an anytime, iterative-deepening loop
-you stop whenever you like. Each KB ships an operator guide,
-[`docs/deepening.md`](_template/docs/deepening.md), covering the deepening algorithm, the
-coverage-vs-manifest ledger ownership, and a guardrailed human playbook.
-
-## Trusting the wiki (QA)
-
-A KB is only useful if you can act on it. QA is defense-in-depth: `scripts/lint` runs free
-mechanical checks (citations, links, style, privacy); `scripts/ingest --verify` is an
-adversarial pass that re-reads cited sources to confirm or flag claims, writing a
-verification ledger (`.ingest/qa.tsv`); and `scripts/stats` reports coverage and
-`% verified`. Effort is risk-weighted, value × uncertainty × stakes, so the target is
-calibrated confidence per tier, not 100%. Full strategy and operator loop:
-[`docs/qa.md`](_template/docs/qa.md).
-
-## Design notes
-
-Forward-looking architecture that is not built yet lives under [`docs/`](docs/). Current:
-[`docs/routing.md`](docs/routing.md), an opt-in design for sensitivity-aware model routing
-(classify each source document, keep sensitive inputs on a local model, send only
-non-sensitive work to a frontier model) so regulated material need never leave the machine.
-
-## The pattern in one paragraph
-
-Instead of RAG re-deriving knowledge on every query, the LLM **incrementally builds and
-maintains a persistent wiki** between you and your raw sources. You curate sources and ask
-questions; the LLM does the summarizing, cross-referencing, filing, and bookkeeping. The
-wiki compounds, cross-references are already there, contradictions already flagged,
-synthesis already current. Full write-up:
-[`docs/llm-wiki-pattern.md`](docs/llm-wiki-pattern.md).
-
-### Sources can be living
-
-A KB's `raw/` accepts plain files, whole directories, and **symlinks to living documents**
-(e.g. a shared-drive folder that stays organized at its source). Git stores the symlink,
-not the target's contents, so the wiki references living sources without copying or owning
-them, and the agent can **re-ingest** updates when they change.
-
-## Customizing the template
-
-Edit `_template/` to change what new KBs look like, especially
-[`_template/AGENTS.md`](_template/AGENTS.md), which encodes the page conventions and the
-ingest / re-ingest / query / lint workflows. Placeholders `{{KB_NAME}}`, `{{KB_TITLE}}`,
-`{{DATE}}`, and `{{YEAR}}` are substituted at generation time.
+Inside it's plain files: `wiki/` (the notes), `raw/` (your documents), `inbox/` (the drop
+folder), `.schema/` (page types and privacy levels), and a running `log.md`. The AI's full
+instructions live in `AGENTS.md`, the writing rules in `STYLE.md`. Edit `_template/` to change
+what new bases look like. Every script, in detail:
+[`_template/scripts/README.md`](_template/scripts/README.md).
 
 ## License
 
