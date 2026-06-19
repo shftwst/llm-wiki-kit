@@ -184,7 +184,9 @@ if [ "$ALL" = 0 ]; then
   [ "$MODE" = dry ] && exit 0
   ensure_quartz || { printf 'publish[%s]: content staged at %s; install Node+git (or set QUARTZ_DIR) and re-run.\n' "$ROLE" "${OUT#"$KB_DIR"/}" >&2; exit 0; }
   quartz_set_title "$TITLE"
-  rm -rf "$QZ/content"; cp -R "$OUT" "$QZ/content"
+  # Clear BOTH the staged content and the built output: a stale public/ from a previous
+  # (higher-clearance) role would otherwise be served, leaking pages this role cannot see.
+  rm -rf "$QZ/content" "$QZ/public"; cp -R "$OUT" "$QZ/content"
   if [ "$MODE" = serve ]; then
     printf 'publish[%s]: serving live preview at http://localhost:8080 (Ctrl-C to stop) ...\n' "$ROLE"
     ( cd "$QZ" && npx quartz build --serve )
@@ -202,7 +204,7 @@ else
     OUT="$KB_DIR/.publish/$role/content"
     stage_role "$role" "$OUT" || continue
     { [ "$MODE" = dry ] || [ "$QZOK" = 0 ]; } && continue
-    rm -rf "$QZ/content"; cp -R "$OUT" "$QZ/content"
+    rm -rf "$QZ/content" "$QZ/public"; cp -R "$OUT" "$QZ/content"
     ( cd "$QZ" && npx quartz build ) >/dev/null
     site="$KB_DIR/.publish/sites/$role"
     rm -rf "$site"; mkdir -p "$site"; cp -R "$QZ/public/." "$site/"
