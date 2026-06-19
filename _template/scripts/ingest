@@ -102,7 +102,7 @@ if [ "$FRESH" -eq 1 ]; then
 else
   POLICY="Order the frontier value-first: high tier before med before low, and within a tier re-read stale before unread (wrong data beats missing data) — so a stale high-value doc outranks unread high-value, but a stale low-value doc never preempts unread high-value."
 fi
-POLICY="$POLICY Before that ordering, read .ingest/demand.tsv: any source listed there that is still unread or partial in coverage.tsv is read FIRST this pass, ahead of the value and freshness order, because a question needed it. Once read it leaves the demand backlog naturally (it is no longer unread)."
+POLICY="$POLICY Before that ordering, read .ingest/demand.tsv and coverage.tsv together: a demanded source is read FIRST this pass when its most recent demand date is AFTER that source's last_read in coverage.tsv — a question has asked for it since it was last read (an unread source, last_read '-', always qualifies). Read those demanded sources first, ahead of the value and freshness order. A source whose last_read is on or after its latest demand has been served, so it returns to the normal value order; this way a fresh demand re-prioritises even a partially-read source, but a served demand does not linger."
 COV_CLAUSE="In coverage.tsv use the 7 TAB columns path/value/status/pass/last_read/fingerprint/notes: path is the real raw/-relative path the row covers; when you (re)read a row set status=read or partial, bump pass, set last_read, set fingerprint to a single dash (scan --refresh re-baselines it), and treat any stale row as a re-read candidate."
 FRESHLBL=""; [ "$FRESH" -eq 1 ] && FRESHLBL=" fresh-first"
 

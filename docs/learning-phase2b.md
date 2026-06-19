@@ -67,11 +67,13 @@ In `scripts/ingest`, the `POLICY` string (set in the `--fresh` if/else) drives t
 frontier order. After the if/else sets `POLICY`, append a demand clause:
 
 ```bash
-POLICY="$POLICY Before that ordering, read .ingest/demand.tsv: any source listed there that is still unread or partial in coverage.tsv is read FIRST this pass, ahead of the value and freshness order, because a question needed it. Once read it leaves the demand backlog naturally (it is no longer unread)."
+POLICY="$POLICY Before that ordering, read .ingest/demand.tsv and coverage.tsv together: a demanded source is read FIRST this pass when its most recent demand date is AFTER that source's last_read in coverage.tsv — a question has asked for it since it was last read (an unread source, last_read '-', always qualifies). Read those demanded sources first, ahead of the value and freshness order. A source whose last_read is on or after its latest demand has been served, so it returns to the normal value order; this way a fresh demand re-prioritises even a partially-read source, but a served demand does not linger."
 ```
 
 `POLICY` is interpolated only into the read and deepen prompts, so map and verify are unaffected.
-No new flag; demand prioritisation is automatic on every read/deepen pass.
+No new flag; demand prioritisation is automatic on every read/deepen pass. The freshness comparison
+(demand date vs `last_read`) is the same trick `scan --refresh` uses for staleness, so a demand is
+"live" exactly while a question has asked for the source since it was last read.
 
 ## 5. Changed `scripts/stats`: DEMANDED report
 
@@ -80,12 +82,13 @@ Add a read-only section after MOST QUERIED, before COST, mirroring the existing 
 - Header: `DEMANDED (.ingest/demand.tsv)`.
 - Empty case (no data rows): `(none yet — a query logs a source here when its data is unread)`.
 - Otherwise: a totals line (`N demand(s) across M source(s)`), then the top sources by demand
-  count, each as `count  source  [status]  (last asked DATE)`, where `status` is the source's
-  current `coverage.tsv` status (`unread` / `partial` / `read`, or `?` if the path is not in
-  coverage). Still-`unread`/`partial` sources are the live backlog the next ingest will read;
-  `read` ones are satisfied.
+  count, each as `count  source  [status] live|served  (last asked DATE)`, where `status` is the
+  source's current `coverage.tsv` status (`unread` / `partial` / `read`, or `?` if the path is not
+  in coverage) and `live`/`served` is whether the latest demand date is after the source's
+  `last_read` (live = the next ingest will read it; served = read since it was last demanded).
 
-No LLM. The status lookup reads `coverage.tsv` into a map, then aggregates `demand.tsv`.
+No LLM. The lookup reads `coverage.tsv` status and `last_read` into maps, then aggregates
+`demand.tsv` and compares dates.
 
 ## 6. Changed `scripts/query`: prompt reminder
 
@@ -126,9 +129,12 @@ anytime: scripts/stats DEMANDED -> still-unread demanded sources (count, last as
   same unread-vs-absent split `learning.md` section 7 calls out.
 - **Privacy.** `demand.tsv` stores a `coverage.tsv` path (already an internal ledger value, no new
   exposure) and a short topic note, never the verbatim question, consistent with `queries.tsv`.
-- **Append-only, self-clearing backlog.** Demand never edits prior rows. A demanded source stops
-  being prioritised once it is read (the POLICY clause intersects demand with still-`unread`), so
-  no explicit cleanup is needed; the rows stay as an audit trail.
+- **Append-only, self-clearing backlog.** Demand never edits prior rows. A demanded source is
+  prioritised only while its latest demand date is after its `coverage.tsv` `last_read` (a question
+  asked for it since it was last read); once a pass reads it, that demand is served and it returns
+  to the normal value order. A directory source read only to `partial` does not linger as demanded,
+  yet a fresh demand for it later re-activates it. No explicit cleanup; the rows stay as an audit
+  trail, and `stats` shows each source as `live` or `served`.
 - **Trust boundary.** A query cannot force a raw read or write; `demand.tsv` is advisory to the
   ingest frontier, which still honours relevance and the read-only `raw/` guard.
 
