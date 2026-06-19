@@ -133,7 +133,9 @@ a row to make a view for any role.
 Pages above the role's clearance are excluded; links to excluded pages and all `../raw/`
 citation links are de-linked, so the site has no broken links and no paths into private
 sources. `index.md` and `overview.md` are skipped (they catalog the whole graph); a minimal
-role-view `index.md` is generated so the site root resolves, and Quartz builds its own nav.
+role-view `index.md` is generated so the site root resolves, and Quartz builds its own nav. That
+landing page leads with a **Most asked about** list, the most-queried pages (`.ingest/queries.tsv`)
+this role is cleared to see, so usage prominence reaches the published site too.
 
 One Quartz instance serves one role at a time, so `--all` writes each role to its own static
 output dir (`.publish/sites/<role>/`) you can open or host; preview one live with

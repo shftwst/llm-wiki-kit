@@ -16,7 +16,9 @@
 # clearance are excluded; links to excluded pages and all ../raw/ citation links are de-linked
 # so the published site has no broken links and no paths into private sources. Pages whose type
 # class is `nav` (index, overview) are skipped; a minimal role-view index.md is generated so the
-# site root resolves. Quartz builds its own navigation.
+# site root resolves. Quartz builds its own navigation. That landing page leads with a "Most asked
+# about" list (the most-queried pages from .ingest/queries.tsv that this role is cleared to see),
+# so usage prominence reaches the published site even though overview.md is skipped.
 #
 # The site title (Quartz's header, and the landing page) is the KB's own title, read from the
 # overview's `title:`/H1 (which the ingest infers from the sources), falling back to the
@@ -34,6 +36,7 @@ KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$KB_DIR/scripts/kblib.sh"   # page-type + privilege-tier vocabularies (.schema/)
 WIKI="$KB_DIR/wiki"
 ROLES="$KB_DIR/.publish/roles.tsv"
+QUERIES="$KB_DIR/.ingest/queries.tsv"   # usage log; drives the landing page's "Most asked about"
 QZ="${QUARTZ_DIR:-$KB_DIR/.publish/quartz}"
 
 ROLE="${1:-}"; MODE=build; ALL=0
@@ -127,7 +130,18 @@ stage_role() {
   # so synthesize a minimal landing page for this role view (else "/" 404s).
   {
     printf -- '---\ntitle: %s\n---\n\n' "$TITLE"
-    printf '# %s\n\nThe **%s** view of this knowledge base. Browse with the explorer or search, or start from the pages below.\n\n## Pages\n\n' "$TITLE" "$role"
+    printf '# %s\n\nThe **%s** view of this knowledge base. Browse with the explorer or search, or start from the pages below.\n\n' "$TITLE" "$role"
+    # Most asked about: the most-queried pages that are in THIS role's view (deterministic,
+    # from queries.tsv; the wiki's overview.md is skipped, so prominence reaches the site here).
+    if [ -f "$QUERIES" ]; then
+      top="$(awk -F'\t' 'NR==FNR{inc[$1]=1;next} $1~/^#/||$1==""{next} ($2 in inc){c[$2]++} END{for(p in c)printf "%d\t%s\n",c[p],p}' "$inc_file" "$QUERIES" | sort -rn | head -5)"
+      if [ -n "$top" ]; then
+        printf '## Most asked about\n\n'
+        printf '%s\n' "$top" | while IFS=$'\t' read -r n p; do [ -n "$p" ] && printf -- '- [[%s]]\n' "$p"; done
+        printf '\n'
+      fi
+    fi
+    printf '## Pages\n\n'
     while IFS= read -r s; do [ -n "$s" ] && printf -- '- [[%s]]\n' "$s"; done < "$inc_file"
   } > "$out/index.md"
 
