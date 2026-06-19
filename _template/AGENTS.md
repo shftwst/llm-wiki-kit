@@ -396,7 +396,8 @@ For each stale document:
 4. If the answer is a one-fact **lookup**, file nothing.
 5. If the wiki cannot answer, read `.ingest/coverage.tsv`. If a plausibly relevant source is
    `unread` or `partial`, append an `at<TAB>source<TAB>note` row to `.ingest/demand.tsv` (at = the
-   current timestamp from `scripts/now`; source = its coverage path; note = a short topic phrase of
+   current timestamp from `scripts/now`; source = its coverage path, the bare path without any
+   parenthetical description the coverage row may carry; note = a short topic phrase of
    what was needed, never the question text), and
    tell the user the answer likely lives in that source, which is not read yet and is now flagged
    for the next read pass. If no source plausibly covers the question, say it is a genuine gap. Do
