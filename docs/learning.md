@@ -1,7 +1,8 @@
 # Learning from use (design)
 
-**Status: Phase 1 (file-back) and Phase 2a (prominence) are built; query-driven depth (Phase 2b)
-and smarter dedup (Phase 3) are design only.** This records the architecture so the decisions are
+**Status: Phase 1 (file-back), Phase 2a (prominence), and Phase 2b promote (query-driven depth
+flagging) are built; the Phase 2b inline read and smarter dedup (Phase 3) are design only.** This
+records the architecture so the decisions are
 on file. The goal is the "self-improving" and "usage-shaped" half of the second-brain framing:
 the wiki should get better the more it is queried, without a human curating every step, and
 without the auto-curation quietly degrading the wiki it is meant to improve.
@@ -167,8 +168,9 @@ detection and promotion, the `.ingest/queries.tsv` log, and the prominence ranki
 - **Phase 2a (prominence from use). Built.** `.ingest/queries.tsv` (an append-only page-hit log),
   the `stats` MOST QUERIED report, and agent-applied prominence ordering in `index` and
   `overview`. See `learning-phase2.md`.
-- **Phase 2b (query-driven depth).** Query-miss detection against `coverage.tsv` with an opt-in
-  targeted read to answer now and a promotion for the next batch. Not built.
+- **Phase 2b (query-driven depth). Promote built.** Query-miss detection against `coverage.tsv`: a
+  relevant unread source is logged to `.ingest/demand.tsv`, read first on the next ingest pass, and
+  shown in `stats`. See `learning-phase2b.md`. The opt-in inline read (answer now) is deferred.
 - **Phase 3 (smarter dedup).** Replace structural matching with an embedding index over page
   topics if Phase 1 shows structural matching misses too many same-question duplicates.
 

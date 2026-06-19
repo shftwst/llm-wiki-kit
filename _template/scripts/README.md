@@ -95,6 +95,10 @@ It also reports **MOST QUERIED** pages, aggregated from `.ingest/queries.tsv` (a
 page-hit log the agent writes on every answered query, slugs and dates only), so you can see what
 the wiki is actually used for. See `../docs/learning.md` §6.
 
+It also reports **DEMANDED** sources from `.ingest/demand.tsv` (documents a query needed but had
+not read yet, shown with their current coverage status), so you can see what to ingest next; the
+read/deepen passes read demanded-but-unread sources first. See `../docs/learning.md` §7.
+
 ## `classify`: estimate sensitivity
 
 Tags each coverage item with a sensitivity tier (`default | business-sensitive |
