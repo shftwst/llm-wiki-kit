@@ -163,9 +163,11 @@ detection and promotion, the `.ingest/queries.tsv` log, and the prominence ranki
   `derived_from` plus title match), merge-or-create, and the verify gate, all run nightly. No
   hot-path cost beyond a logged tag. Auto-filed pages land `verified: false` until the batch
   confirms them.
-- **Phase 2 (depth and prominence from use).** Query-miss detection against `coverage.tsv` with an
-  opt-in targeted read to answer now and a promotion for the next batch; `.ingest/queries.tsv` and
-  the deterministic prominence ranking in `index` and `overview`.
+- **Phase 2a (prominence from use). Built.** `.ingest/queries.tsv` (an append-only page-hit log),
+  the `stats` MOST QUERIED report, and agent-applied prominence ordering in `index` and
+  `overview`. See `learning-phase2.md`.
+- **Phase 2b (query-driven depth).** Query-miss detection against `coverage.tsv` with an opt-in
+  targeted read to answer now and a promotion for the next batch. Not built.
 - **Phase 3 (smarter dedup).** Replace structural matching with an embedding index over page
   topics if Phase 1 shows structural matching misses too many same-question duplicates.
 

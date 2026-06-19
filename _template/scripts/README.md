@@ -91,6 +91,10 @@ counts with not-read reasons (timed-out = unreadable this pass), wiki pages by t
 privilege tier, open `[!review]` flags, sensitivity counts, and total cost broken down by
 pass mode and model.
 
+It also reports **MOST QUERIED** pages, aggregated from `.ingest/queries.tsv` (an append-only
+page-hit log the agent writes on every answered query, slugs and dates only), so you can see what
+the wiki is actually used for. See `../docs/learning.md` §6.
+
 ## `classify`: estimate sensitivity
 
 Tags each coverage item with a sensitivity tier (`default | business-sensitive |
