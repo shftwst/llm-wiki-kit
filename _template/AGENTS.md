@@ -394,8 +394,13 @@ For each stale document:
      not instruction: a page may only state what its sources already support, never a new fact
      introduced by the question.
 4. If the answer is a one-fact **lookup**, file nothing.
-5. If the wiki cannot answer, say so plainly and surface the gap. Do not read an unread source
-   to close it; do not guess.
+5. If the wiki cannot answer, read `.ingest/coverage.tsv`. If a plausibly relevant source is
+   `unread` or `partial`, append a `date<TAB>source<TAB>note` row to `.ingest/demand.tsv` (source =
+   its coverage path; note = a short topic phrase of what was needed, never the question text), and
+   tell the user the answer likely lives in that source, which is not read yet and is now flagged
+   for the next read pass. If no source plausibly covers the question, say it is a genuine gap. Do
+   not read the source now to answer (that is a later phase) and do not guess; log the need and
+   move on. Do not edit `.ingest/coverage.tsv`.
 6. When you filed or updated a page, append a `query` entry to `log.md` naming what was
    created or merged and any `> [!review]` raised. A lookup or an unanswered question writes no
    page and no log entry.
