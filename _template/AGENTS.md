@@ -274,12 +274,14 @@ from, and that document should be openable. So:
 
 **`wiki/index.md`: content catalog.** Every wiki page listed with a `[[link]]` and a
 one-line summary, grouped by category. Update it on every ingest/re-ingest. When
-answering a query, read the index first to find relevant pages, then drill in. Order pages
-within each category by how often they are asked about (the per-page hit count in
-`.ingest/queries.tsv`, most-asked first; ties keep their existing order). On `wiki/overview.md`,
-keep a short **Most asked about** section listing the top few pages by that count, so the home
-page leads with what people actually use. Prominence is a soft signal on top of the catalog, not
-a reordering of the underlying pages or their privilege.
+answering a query, read the index first to find relevant pages, then drill in. Whenever you
+update `wiki/index.md` or `wiki/overview.md`, first read `.ingest/queries.tsv` and apply usage
+prominence: order pages within each category by their per-page hit count (most-asked first; ties
+keep their existing order), and create or refresh a short **Most asked about** section on
+`wiki/overview.md` listing the top few pages by that count, so the home page leads with what
+people actually use. With an empty `.ingest/queries.tsv`, change nothing and add no section.
+Prominence is a soft signal on top of the catalog, not a reordering of the underlying pages or
+their privilege.
 
 **`log.md`: chronological, append-only.** One entry per operation. Format:
 
