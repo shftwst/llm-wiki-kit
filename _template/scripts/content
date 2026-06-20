@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# content — emit the KB's consumable content for downstream machine consumers (the RAG indexer).
+# A read-only PLUMBING command (stable, JSON output); it never mutates the KB.
+#
+#   scripts/content --manifest        JSONL of {id,hash} per consumable page (no bodies)
+#   scripts/content --get             read ids on stdin (one per line), emit the full record each
+#
+# Consumable pages are wiki/*.md whose type class is not `nav`. id = path under wiki/ minus .md.
+# Pages with no `privilege` take the lowest-rank tier. Requires jq.
+set -euo pipefail
+KB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WIKI="$KB_DIR/wiki"
+. "$KB_DIR/scripts/kblib.sh"
+command -v jq >/dev/null 2>&1 || { echo "content: jq is required" >&2; exit 1; }
+
+DEFAULT_TIER="$(kb_tiers | head -1)"
+
+hash_file() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else sha256sum "$1" | cut -d' ' -f1; fi
+}
+# Read the frontmatter block (between the first two --- lines) only.
+fm_block() { awk 'NR==1&&$0=="---"{f=1;next} f&&$0=="---"{exit} f{print}' "$1"; }
+fm_get()   { fm_block "$1" | awk -F': ' -v k="$2" '$1==k{sub(/^[^:]*: */,"");print;exit}'; }
+# Body = everything after the closing --- of the frontmatter.
+page_body() { awk 'NR==1&&$0=="---"{f=1;next} f&&$0=="---"{f=0;b=1;next} b{print}' "$1"; }
+page_title() {
+  t="$(fm_get "$1" title)"; [ -n "$t" ] && { printf '%s' "$t"; return; }
+  grep -m1 '^# ' "$1" | sed 's/^# *//'
+}
+is_nav() { case "$(kb_type_class "$(fm_get "$1" type)")" in nav) return 0;; *) return 1;; esac; }
+page_id() { id="${1#"$WIKI"/}"; printf '%s' "${id%.md}"; }
+
+emit_manifest() {
+  for f in $(find "$WIKI" -name '*.md' | sort); do
+    is_nav "$f" && continue
+    jq -nc --arg id "$(page_id "$f")" --arg hash "$(hash_file "$f")" '{id:$id,hash:$hash}'
+  done
+}
+
+emit_get() {
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    f="$WIKI/$id.md"
+    [ -f "$f" ] || continue          # removed between manifest and get: skip, next run reconciles
+    priv="$(fm_get "$f" privilege)"; [ -n "$priv" ] || priv="$DEFAULT_TIER"
+    jq -nc \
+      --arg id "$id" \
+      --arg title "$(page_title "$f")" \
+      --arg hash "$(hash_file "$f")" \
+      --arg privilege "$priv" \
+      --arg type "$(fm_get "$f" type)" \
+      --arg updated "$(fm_get "$f" updated)" \
+      --arg body "$(page_body "$f")" \
+      '{id:$id,title:$title,hash:$hash,frontmatter:{privilege:$privilege,type:$type,updated:$updated},body:$body}'
+  done
+}
+
+case "${1:-}" in
+  --manifest) emit_manifest;;
+  --get)      emit_get;;
+  *) echo "content: usage: scripts/content --manifest | --get (ids on stdin)" >&2; exit 1;;
+esac
