@@ -32,7 +32,7 @@ is_nav() { case "$(kb_type_class "$(fm_get "$1" type)")" in nav) return 0;; *) r
 page_id() { id="${1#"$WIKI"/}"; printf '%s' "${id%.md}"; }
 
 emit_manifest() {
-  for f in $(find "$WIKI" -name '*.md' | sort); do
+  find "$WIKI" -name '*.md' | sort | while IFS= read -r f; do
     is_nav "$f" && continue
     jq -nc --arg id "$(page_id "$f")" --arg hash "$(hash_file "$f")" '{id:$id,hash:$hash}'
   done
